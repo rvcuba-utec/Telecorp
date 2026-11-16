@@ -1,0 +1,10 @@
+.git
+.gitignore
+.agents/
+reference/
+references/
+infra/
+.terraform/
+*.tfstate*
+__pycache__/
+*.pyc

@@ -1,0 +1,335 @@
+{
+  "Comment": "antenna-incident-lifecycle: del primer evento del episodio a su recuperacion (RF-AWS-13)",
+  "StartAt": "Init",
+  "States": {
+    "Init": {
+      "Type": "Pass",
+      "Parameters": {
+        "event.$": "$",
+        "escalated": false
+      },
+      "Next": "EnrichContext"
+    },
+    "EnrichContext": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${EnrichContextArn}",
+        "Payload.$": "$.event"
+      },
+      "ResultSelector": {
+        "Payload.$": "$.Payload"
+      },
+      "ResultPath": "$.context",
+      "Next": "PublishFirstEvent",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2.0
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.error",
+          "Next": "NotifyOps"
+        }
+      ]
+    },
+    "PublishFirstEvent": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${EmitEventArn}",
+        "Payload.$": "$.event"
+      },
+      "ResultSelector": {
+        "Payload.$": "$.Payload"
+      },
+      "ResultPath": "$.published",
+      "Next": "Wait",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2.0
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.error",
+          "Next": "NotifyOps"
+        }
+      ]
+    },
+    "Wait": {
+      "Type": "Wait",
+      "SecondsPath": "$.context.Payload.config.check_interval_s",
+      "Next": "CheckRecovery"
+    },
+    "CheckRecovery": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${CheckRecoveryArn}",
+        "Payload": {
+          "antenna_id.$": "$.event.antenna_id",
+          "episode_id.$": "$.event.episode_id",
+          "first_anomaly_at.$": "$.event.first_anomaly_at"
+        }
+      },
+      "ResultSelector": {
+        "Payload.$": "$.Payload"
+      },
+      "ResultPath": "$.check",
+      "Next": "Recovered?",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2.0
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.error",
+          "Next": "NotifyOps"
+        }
+      ]
+    },
+    "Recovered?": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.check.Payload.recovered",
+          "BooleanEquals": true,
+          "Next": "HasRecoveryEvent"
+        }
+      ],
+      "Default": "ProlongedOrTooLong?"
+    },
+    "ProlongedOrTooLong?": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.check.Payload.elapsed_min",
+          "NumericGreaterThanEqualsPath": "$.context.Payload.config.max_episode_min",
+          "Next": "NotifyMaxDuration"
+        },
+        {
+          "And": [
+            {
+              "Variable": "$.check.Payload.elapsed_min",
+              "NumericGreaterThanEqualsPath": "$.context.Payload.config.prolonged_after_min"
+            },
+            {
+              "Variable": "$.escalated",
+              "BooleanEquals": false
+            }
+          ],
+          "Next": "EmitProlonged"
+        }
+      ],
+      "Default": "Wait"
+    },
+    "EmitProlonged": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${EmitEventArn}",
+        "Payload": {
+          "event_type": "PROLONGADA",
+          "antenna_id.$": "$.event.antenna_id",
+          "zone_id.$": "$.event.zone_id",
+          "episode_id.$": "$.event.episode_id",
+          "previous_state.$": "$.event.new_state",
+          "new_state.$": "$.check.Payload.state",
+          "gb_per_min.$": "$.event.gb_per_min",
+          "first_anomaly_at.$": "$.event.first_anomaly_at",
+          "ts.$": "$.check.Payload.now",
+          "elapsed_minutes.$": "$.check.Payload.elapsed_min",
+          "base_severity.$": "$.event.severity"
+        }
+      },
+      "ResultSelector": {
+        "Payload.$": "$.Payload"
+      },
+      "ResultPath": "$.prolonged",
+      "Next": "NotifyProlonged",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2.0
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.error",
+          "Next": "NotifyOps"
+        }
+      ]
+    },
+    "NotifyProlonged": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::sns:publish",
+      "Parameters": {
+        "TopicArn": "${OpsTopicArn}",
+        "Subject": "PulsoRed: episodio prolongado",
+        "Message.$": "States.Format('PROLONGADA: la antena {} lleva {} min sin recuperarse (episodio {}).', $.event.antenna_id, $.check.Payload.elapsed_min, $.event.episode_id)"
+      },
+      "ResultPath": null,
+      "Next": "MarkEscalated"
+    },
+    "MarkEscalated": {
+      "Type": "Pass",
+      "Result": true,
+      "ResultPath": "$.escalated",
+      "Next": "Wait"
+    },
+    "NotifyMaxDuration": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::sns:publish",
+      "Parameters": {
+        "TopicArn": "${OpsTopicArn}",
+        "Subject": "PulsoRed: episodio sin cerrar",
+        "Message.$": "States.Format('El episodio {} de la antena {} supero el maximo y se deja de monitorear.', $.event.episode_id, $.event.antenna_id)"
+      },
+      "ResultPath": null,
+      "Next": "Done"
+    },
+    "HasRecoveryEvent": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.check.Payload.recovery_event",
+          "IsNull": true,
+          "Next": "CloseEpisode"
+        }
+      ],
+      "Default": "EnsureRecoveryPublished"
+    },
+    "EnsureRecoveryPublished": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${EmitEventArn}",
+        "Payload.$": "$.check.Payload.recovery_event"
+      },
+      "ResultSelector": {
+        "Payload.$": "$.Payload"
+      },
+      "ResultPath": "$.recoveryPublished",
+      "Next": "CloseEpisode",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2.0
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.error",
+          "Next": "NotifyOps"
+        }
+      ]
+    },
+    "CloseEpisode": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::dynamodb:updateItem",
+      "Parameters": {
+        "TableName": "${AntennasTable}",
+        "Key": {
+          "antenna_id": {
+            "S.$": "$.event.antenna_id"
+          }
+        },
+        "UpdateExpression": "REMOVE episode_id, episode_started_at, first_anomaly_at",
+        "ConditionExpression": "episode_id = :e",
+        "ExpressionAttributeValues": {
+          ":e": {
+            "S.$": "$.event.episode_id"
+          }
+        }
+      },
+      "ResultPath": null,
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2.0
+        }
+      ],
+      "Next": "Done",
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "DynamoDB.ConditionalCheckFailedException"
+          ],
+          "ResultPath": null,
+          "Next": "Done"
+        },
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.error",
+          "Next": "NotifyOps"
+        }
+      ]
+    },
+    "NotifyOps": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::sns:publish",
+      "Parameters": {
+        "TopicArn": "${OpsTopicArn}",
+        "Subject": "PulsoRed: fallo en antenna-incident-lifecycle",
+        "Message.$": "States.Format('Fallo en antenna-incident-lifecycle (episodio {}): {}', $.event.episode_id, States.JsonToString($.error))"
+      },
+      "ResultPath": null,
+      "Next": "Failed"
+    },
+    "Failed": {
+      "Type": "Fail",
+      "Error": "LifecycleFailed",
+      "Cause": "Ver el aviso enviado a operadores"
+    },
+    "Done": {
+      "Type": "Succeed"
+    }
+  }
+}

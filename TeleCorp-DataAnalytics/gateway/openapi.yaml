@@ -1,0 +1,112 @@
+openapi: 3.0.4
+info:
+  title: "Red TeleCorp GCP Analytics and AI API"
+  version: 1.0.0
+  description: "API Gateway para ingesta de telemetría/eventos (AWS), incidencias (Azure), IA Generativa (Gemini) y Predicciones ML (BigQuery ML)."
+servers:
+  - url: /v1
+    x-google-endpoint:
+      allowCors: true
+x-google-api-management:
+  backends:
+    cloud-run-backend:
+      address: "https://telecorp-analytics-api-113946186456.us-central1.run.app"
+      pathTranslation: APPEND_PATH_TO_ADDRESS
+      deadline: 30.0
+  metrics:
+    api-requests:
+      displayName: API requests per minute
+  quota:
+    limits:
+      api-requests-limit:
+        metric: api-requests
+        values: 1200
+x-google-backend: cloud-run-backend
+security:
+  - api_key: []
+components:
+  securitySchemes:
+    api_key:
+      type: apiKey
+      name: x-api-key
+      in: header
+paths:
+  /ingest/telemetry:
+    post:
+      operationId: ingestTelemetry
+      summary: Ingest antenna telemetry metrics from AWS.
+      x-google-quota:
+        api-requests: 1
+      responses:
+        "200":
+          description: Telemetry batch processed.
+  /ingest/events:
+    post:
+      operationId: ingestEvents
+      summary: Ingest antenna state change events from AWS.
+      x-google-quota:
+        api-requests: 1
+      responses:
+        "200":
+          description: Events batch processed.
+  /ingest/incidents:
+    post:
+      operationId: ingestIncidents
+      summary: Ingest user reports and collective incidents from Azure.
+      x-google-quota:
+        api-requests: 1
+      responses:
+        "200":
+          description: Incidents batch processed.
+  /ai/classify-report:
+    post:
+      operationId: classifyReport
+      summary: Classify a user report description using Vertex AI Gemini.
+      x-google-quota:
+        api-requests: 1
+      responses:
+        "200":
+          description: Validated classification JSON.
+  /ai/summarize-incident:
+    post:
+      operationId: summarizeIncident
+      summary: Generate executive summary and root-cause hypothesis using Gemini.
+      x-google-quota:
+        api-requests: 1
+      responses:
+        "200":
+          description: Validated incident summary JSON.
+  /predictions:
+    get:
+      operationId: getPredictions
+      summary: Query active antenna failure predictions from BigQuery ML.
+      x-google-quota:
+        api-requests: 1
+      parameters:
+        - name: antenna_id
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: zone_id
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: min_probability
+          in: query
+          required: false
+          schema:
+            type: number
+      responses:
+        "200":
+          description: Active failure predictions list.
+  /predictions/run:
+    post:
+      operationId: runPredictions
+      summary: Trigger BigQuery ML inference and push high-risk predictions to AWS.
+      x-google-quota:
+        api-requests: 1
+      responses:
+        "200":
+          description: Inference and AWS push result.

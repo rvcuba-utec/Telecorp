@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "prediction-batch.schema.json",
+  "title": "payload de type=prediction.batch (GCP -> AWS, y respuesta de GET /predictions)",
+  "type": "object",
+  "required": ["model_version", "generated_at", "predictions"],
+  "additionalProperties": false,
+  "properties": {
+    "model_version": { "type": "string" },
+    "generated_at": { "type": "string", "format": "date-time" },
+    "predictions": {
+      "type": "array",
+      "maxItems": 500,
+      "items": {
+        "type": "object",
+        "required": ["antenna_id", "probability", "predicted_state", "horizon_minutes", "valid_until"],
+        "additionalProperties": false,
+        "properties": {
+          "antenna_id": { "type": "string", "pattern": "^ANT-LIM-\\d{3}$" },
+          "zone_id": { "type": "string" },
+          "probability": { "type": "number", "minimum": 0, "maximum": 1 },
+          "predicted_state": { "enum": ["CAIDA", "INHABILITADA", "SATURADA"] },
+          "horizon_minutes": { "type": "integer", "minimum": 1 },
+          "valid_until": { "type": "string", "format": "date-time" }
+        }
+      }
+    }
+  }
+}

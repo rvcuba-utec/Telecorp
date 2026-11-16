@@ -1,0 +1,14 @@
+{
+  "IsEncrypted": false,
+  "Values": {
+    "FUNCTIONS_WORKER_RUNTIME": "python",
+    "AzureWebJobsStorage": "UseDevelopmentStorage=true",
+    "COSMOS": "AccountEndpoint=https://localhost:8081/;AccountKey=<clave-del-emulador>;",
+    "COSMOS_DB": "pulsored",
+    "SB": "<service-bus-connection-string>",
+    "OPERATOR_TOKEN": "dev-operator-token",
+    "AZURE_INBOUND_API_KEY": "dev-aws-key"
+  },
+  "Host": { "CORS": "*" },
+  "_comentario": "Las URLs y claves de AWS/GCP y las reglas se leen del archivo .env de la raíz del repo (ver .env.example)."
+}

@@ -1,0 +1,211 @@
+{
+  "Comment": "recurrence-analysis: marca como ESTRUCTURAL a las antenas con 3 episodios en 7 d o 5 en 30 d (RF-AWS-15)",
+  "StartAt": "ListAntennas",
+  "States": {
+    "ListAntennas": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${ListAntennasArn}",
+        "Payload.$": "$"
+      },
+      "ResultSelector": {
+        "Payload.$": "$.Payload"
+      },
+      "ResultPath": "$.list",
+      "Next": "Analyze",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2.0
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.error",
+          "Next": "NotifyOps"
+        }
+      ]
+    },
+    "Analyze": {
+      "Type": "Map",
+      "ItemsPath": "$.list.Payload.antennas",
+      "MaxConcurrency": 5,
+      "ItemSelector": {
+        "antenna.$": "$$.Map.Item.Value",
+        "ts.$": "$$.Execution.StartTime",
+        "overrides.$": "$.list.Payload.overrides"
+      },
+      "ItemProcessor": {
+        "ProcessorConfig": {
+          "Mode": "INLINE"
+        },
+        "StartAt": "CountEpisodes",
+        "States": {
+          "CountEpisodes": {
+            "Type": "Task",
+            "Resource": "arn:aws:states:::lambda:invoke",
+            "Parameters": {
+              "FunctionName": "${CountEpisodesArn}",
+              "Payload.$": "$"
+            },
+            "ResultSelector": {
+              "Payload.$": "$.Payload"
+            },
+            "ResultPath": "$.count",
+            "Next": "Structural?",
+            "Retry": [
+              {
+                "ErrorEquals": [
+                  "States.ALL"
+                ],
+                "IntervalSeconds": 2,
+                "MaxAttempts": 3,
+                "BackoffRate": 2.0
+              }
+            ],
+            "Catch": [
+              {
+                "ErrorEquals": [
+                  "States.ALL"
+                ],
+                "ResultPath": "$.error",
+                "Next": "ItemError"
+              }
+            ]
+          },
+          "Structural?": {
+            "Type": "Choice",
+            "Choices": [
+              {
+                "Variable": "$.count.Payload.structural",
+                "BooleanEquals": true,
+                "Next": "EmitStructural"
+              }
+            ],
+            "Default": "ItemDone"
+          },
+          "EmitStructural": {
+            "Type": "Task",
+            "Resource": "arn:aws:states:::lambda:invoke",
+            "Parameters": {
+              "FunctionName": "${EmitEventArn}",
+              "Payload.$": "$.count.Payload.event"
+            },
+            "ResultSelector": {
+              "Payload.$": "$.Payload"
+            },
+            "ResultPath": "$.emitted",
+            "Next": "MarkStructural",
+            "Retry": [
+              {
+                "ErrorEquals": [
+                  "States.ALL"
+                ],
+                "IntervalSeconds": 2,
+                "MaxAttempts": 3,
+                "BackoffRate": 2.0
+              }
+            ],
+            "Catch": [
+              {
+                "ErrorEquals": [
+                  "States.ALL"
+                ],
+                "ResultPath": "$.error",
+                "Next": "ItemError"
+              }
+            ]
+          },
+          "MarkStructural": {
+            "Type": "Task",
+            "Resource": "arn:aws:states:::dynamodb:updateItem",
+            "Parameters": {
+              "TableName": "${AntennasTable}",
+              "Key": {
+                "antenna_id": {
+                  "S.$": "$.antenna.antenna_id"
+                }
+              },
+              "UpdateExpression": "SET structural_until = :u",
+              "ExpressionAttributeValues": {
+                ":u": {
+                  "S.$": "$.count.Payload.structural_until"
+                }
+              }
+            },
+            "ResultPath": null,
+            "Retry": [
+              {
+                "ErrorEquals": [
+                  "States.ALL"
+                ],
+                "IntervalSeconds": 2,
+                "MaxAttempts": 3,
+                "BackoffRate": 2.0
+              }
+            ],
+            "Next": "ItemDone",
+            "Catch": [
+              {
+                "ErrorEquals": [
+                  "States.ALL"
+                ],
+                "ResultPath": "$.error",
+                "Next": "ItemError"
+              }
+            ]
+          },
+          "ItemError": {
+            "Type": "Pass",
+            "Parameters": {
+              "antenna_id.$": "$.antenna.antenna_id",
+              "failed": true
+            },
+            "End": true
+          },
+          "ItemDone": {
+            "Type": "Succeed"
+          }
+        }
+      },
+      "ResultPath": "$.results",
+      "Next": "Done",
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.error",
+          "Next": "NotifyOps"
+        }
+      ]
+    },
+    "NotifyOps": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::sns:publish",
+      "Parameters": {
+        "TopicArn": "${OpsTopicArn}",
+        "Subject": "PulsoRed: fallo en recurrence-analysis",
+        "Message.$": "States.Format('Fallo en recurrence-analysis: {}', States.JsonToString($.error))"
+      },
+      "ResultPath": null,
+      "Next": "Failed"
+    },
+    "Failed": {
+      "Type": "Fail",
+      "Error": "RecurrenceFailed",
+      "Cause": "Ver el aviso enviado a operadores"
+    },
+    "Done": {
+      "Type": "Succeed"
+    }
+  }
+}

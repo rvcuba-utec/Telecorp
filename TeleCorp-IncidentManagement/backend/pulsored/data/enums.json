@@ -1,0 +1,72 @@
+{
+  "antenna_state": [
+    "NORMAL",
+    "CAIDA",
+    "INHABILITADA",
+    "SATURADA"
+  ],
+  "severity": [
+    "INFO",
+    "BAJA",
+    "MEDIA",
+    "ALTA",
+    "CRITICA"
+  ],
+  "event_type": [
+    "FALLA",
+    "SATURACION",
+    "DEGRADACION",
+    "RECUPERACION",
+    "PREVENTIVA",
+    "ESTRUCTURAL",
+    "PROLONGADA"
+  ],
+  "incident_type": [
+    "COLECTIVA",
+    "INFRAESTRUCTURA",
+    "PREVENTIVA",
+    "ESTRUCTURAL"
+  ],
+  "status": [
+    "REGISTRADA",
+    "EN_REVISION",
+    "EN_ATENCION",
+    "SOLUCIONADA",
+    "CERRADA"
+  ],
+  "status_labels": {
+    "REGISTRADA": "Registrada",
+    "EN_REVISION": "En revisión",
+    "EN_ATENCION": "Siendo atendida",
+    "SOLUCIONADA": "Solucionada",
+    "CERRADA": "Cerrada"
+  },
+  "category": [
+    "SIN_INTERNET",
+    "INTERNET_LENTO",
+    "SIN_SENAL",
+    "LLAMADAS",
+    "SMS",
+    "OTRO"
+  ],
+  "zone_type": [
+    "RESIDENCIAL",
+    "COMERCIAL",
+    "INDUSTRIAL",
+    "EDUCATIVA",
+    "SALUD",
+    "CRITICA"
+  ],
+  "detected_by": [
+    "ANTENA",
+    "USUARIOS",
+    "AMBOS"
+  ],
+  "envelope_types": [
+    "telemetry.batch",
+    "antenna.event",
+    "prediction.batch",
+    "incident.upsert",
+    "report.upsert"
+  ]
+}

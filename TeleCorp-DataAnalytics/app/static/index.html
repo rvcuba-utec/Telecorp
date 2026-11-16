@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Red TeleCorp — GCP Data Science, BigQuery ML & Gemini Console</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <style>
+    body { background-color: #0b0f19; color: #e2e8f0; font-family: 'Inter', system-ui, sans-serif; }
+    .card { background: #111827; border: 1px solid #1f2937; border-radius: 0.75rem; }
+    #map { height: 360px; width: 100%; border-radius: 0.5rem; z-index: 1; }
+  </style>
+</head>
+<body class="min-h-screen p-6">
+  <div class="max-w-7xl mx-auto space-y-6">
+
+    <!-- Header -->
+    <header class="flex flex-col md:flex-row md:items-center md:justify-between gap-4 border-b border-gray-800 pb-4">
+      <div>
+        <div class="flex items-center gap-2">
+          <span class="px-2.5 py-0.5 text-xs font-semibold bg-blue-500/20 text-blue-400 border border-blue-500/30 rounded-full">Google Cloud Serverless</span>
+          <span id="modelBadge" class="px-2.5 py-0.5 text-xs font-mono bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded-full">BQML: cargando...</span>
+        </div>
+        <h1 class="text-2xl font-bold text-white mt-1">Red TeleCorp — Centro de Analítica, BigQuery ML & Gemini AI</h1>
+        <p class="text-sm text-gray-400">API Gateway + Cloud Run + Pub/Sub (DLQ) + BigQuery + BigQuery ML + Vertex AI (Gemini) + Looker Studio</p>
+      </div>
+      <div class="flex flex-wrap gap-2">
+        <button onclick="runPredictions()" class="px-3.5 py-2 bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium rounded-lg transition">
+          ⚡ Ejecutar ML.PREDICT + Push AWS
+        </button>
+        <button onclick="retrainModel()" class="px-3.5 py-2 bg-purple-600 hover:bg-purple-500 text-white text-sm font-medium rounded-lg transition">
+          🔄 Reentrenar Modelo BQML
+        </button>
+        <button onclick="simulateInvalidPayload()" class="px-3.5 py-2 bg-amber-600/80 hover:bg-amber-600 text-white text-sm font-medium rounded-lg transition">
+          🧪 Probar Validación / DLQ
+        </button>
+        <a href="/docs" target="_blank" class="px-3.5 py-2 bg-gray-800 hover:bg-gray-700 text-gray-200 text-sm font-medium rounded-lg border border-gray-700 transition">
+          📄 OpenAPI / Swagger
+        </a>
+      </div>
+    </header>
+
+    <!-- KPIs -->
+    <section class="grid grid-cols-2 md:grid-cols-6 gap-4">
+      <div class="card p-4">
+        <div class="text-xs text-gray-400 uppercase">Telemetría (BQ)</div>
+        <div id="kpiTelemetry" class="text-2xl font-bold text-white mt-1">-</div>
+        <div class="text-xs text-blue-400 mt-1">Histórico 30 días</div>
+      </div>
+      <div class="card p-4">
+        <div class="text-xs text-gray-400 uppercase">Eventos Antena</div>
+        <div id="kpiEvents" class="text-2xl font-bold text-white mt-1">-</div>
+        <div class="text-xs text-gray-400 mt-1">Desde AWS</div>
+      </div>
+      <div class="card p-4">
+        <div class="text-xs text-gray-400 uppercase">Incidencias</div>
+        <div id="kpiIncidents" class="text-2xl font-bold text-white mt-1">-</div>
+        <div class="text-xs text-gray-400 mt-1">Desde Azure</div>
+      </div>
+      <div class="card p-4">
+        <div class="text-xs text-gray-400 uppercase">Riesgo Falla (≥50%)</div>
+        <div id="kpiHighRisk" class="text-2xl font-bold text-rose-400 mt-1">-</div>
+        <div class="text-xs text-rose-400/80 mt-1">Enviadas a AWS StepFn</div>
+      </div>
+      <div class="card p-4">
+        <div class="text-xs text-gray-400 uppercase">Fallas Estructurales</div>
+        <div id="kpiStructural" class="text-2xl font-bold text-amber-400 mt-1">-</div>
+        <div class="text-xs text-amber-400/80 mt-1">≥3 días con anomalía</div>
+      </div>
+      <div class="card p-4">
+        <div class="text-xs text-gray-400 uppercase">Rechazos DLQ</div>
+        <div id="kpiRejections" class="text-2xl font-bold text-emerald-400 mt-1">0</div>
+        <div class="text-xs text-gray-400 mt-1">Filtro RF-GCP-03</div>
+      </div>
+    </section>
+
+    <!-- Fila Principal: Mapa Geoespacial (RF-GCP-12) + Predicciones de Fallas BigQuery ML (RF-GCP-15/16) -->
+    <section class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <!-- Mapa Geoespacial y Zonas Críticas -->
+      <div class="card p-5 space-y-4">
+        <div class="flex items-center justify-between">
+          <div>
+            <h2 class="text-lg font-semibold text-white">🗺️ Mapa Geoespacial de Zonas Críticas y Antenas (RF-GCP-07, 12)</h2>
+            <p class="text-xs text-gray-400">Concentración de usuarios afectados, sitios críticos (Salud, Educación, Industria) y riesgo ML</p>
+          </div>
+        </div>
+        <div id="map"></div>
+        <div class="overflow-x-auto max-h-56">
+          <table class="w-full text-left text-xs">
+            <thead class="text-gray-400 border-b border-gray-800">
+              <tr>
+                <th class="py-2">Zona</th>
+                <th class="py-2">Tipo / Sitios Críticos</th>
+                <th class="py-2 text-right">Incidencias</th>
+                <th class="py-2 text-right">Afectados</th>
+                <th class="py-2 text-right">Detección (s)</th>
+              </tr>
+            </thead>
+            <tbody id="zonesTable" class="divide-y divide-gray-800/60"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Predicciones BigQuery ML -->
+      <div class="card p-5 space-y-4">
+        <div class="flex items-center justify-between">
+          <div>
+            <h2 class="text-lg font-semibold text-white">🔮 Predicciones de Falla por Antena — BigQuery ML (RF-GCP-14 a 19)</h2>
+            <p class="text-xs text-gray-400">Horizonte: 6h · Se envían a AWS las de probabilidad ≥ 0.50 · Alerta preventiva en AWS ≥ 0.70</p>
+          </div>
+          <span id="pushStatusBadge" class="text-xs font-mono text-blue-400">Listo</span>
+        </div>
+        <div class="overflow-x-auto max-h-[500px]">
+          <table class="w-full text-left text-xs">
+            <thead class="text-gray-400 border-b border-gray-800">
+              <tr>
+                <th class="py-2">Antena</th>
+                <th class="py-2">Zona</th>
+                <th class="py-2">Estado Previsto</th>
+                <th class="py-2">Probabilidad de Falla</th>
+                <th class="py-2">Acción AWS</th>
+              </tr>
+            </thead>
+            <tbody id="predictionsTable" class="divide-y divide-gray-800/60"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- Segunda Fila: Fallas Estructurales (RF-GCP-08/09) + Laboratorio Gemini IA Generativa (RF-GCP-21/22) -->
+    <section class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <!-- Antenas Problemáticas y Fallas Estructurales -->
+      <div class="card p-5 space-y-4">
+        <div>
+          <h2 class="text-lg font-semibold text-white">📡 Antenas Problemáticas y Fallas Estructurales (RF-GCP-08, 09)</h2>
+          <p class="text-xs text-gray-400">Detecta antenas con "falsa recuperación" que acumulan fallas en ≥ 3 días distintos</p>
+        </div>
+        <div class="overflow-x-auto max-h-80">
+          <table class="w-full text-left text-xs">
+            <thead class="text-gray-400 border-b border-gray-800">
+              <tr>
+                <th class="py-2">Antena</th>
+                <th class="py-2">Zona</th>
+                <th class="py-2 text-right">Caídas</th>
+                <th class="py-2 text-right">Saturaciones</th>
+                <th class="py-2 text-right">Días c/Falla</th>
+                <th class="py-2 text-center">Diagnóstico</th>
+              </tr>
+            </thead>
+            <tbody id="antennasTable" class="divide-y divide-gray-800/60"></tbody>
+          </table>
+        </div>
+
+        <!-- Tabla de Rechazos DLQ -->
+        <div class="pt-3 border-t border-gray-800">
+          <h3 class="text-sm font-semibold text-amber-400">🛡️ Registro de Rechazos / Dead-Letter Queue (RF-GCP-03)</h3>
+          <div id="rejectionsBox" class="text-xs text-gray-400 mt-2 space-y-1 font-mono max-h-28 overflow-y-auto">
+            Sin paquetes rechazados. Haz clic en "Probar Validación / DLQ" arriba para simular un JSON corrupto.
+          </div>
+        </div>
+      </div>
+
+      <!-- Laboratorio en Vivo de Gemini (RF-GCP-21, 22, 23) -->
+      <div class="card p-5 space-y-4">
+        <div>
+          <h2 class="text-lg font-semibold text-white">✨ Laboratorio IA Generativa — Vertex AI Gemini (RF-GCP-21 a 23)</h2>
+          <p class="text-xs text-gray-400">Prueba en vivo los endpoints <code class="text-blue-400">POST /ai/classify-report</code> y <code class="text-blue-400">POST /ai/summarize-incident</code> que consume Azure</p>
+        </div>
+
+        <div class="space-y-2">
+          <label class="text-xs text-gray-300">Descripción del reporte del usuario (se anonimiza PII automáticamente):</label>
+          <textarea id="reportText" rows="3" class="w-full bg-gray-900 border border-gray-700 rounded-lg p-2.5 text-xs text-white"
+            >Desde hace 40 minutos no tenemos nada de señal ni internet en todo el Hospital Nacional Rebagliati, mi número es 998877665 y las ambulancias no pueden coordinar.</textarea>
+          <div class="flex gap-2">
+            <button onclick="testClassifyReport()" class="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-medium rounded-lg">
+              Clasificar con Gemini (POST /ai/classify-report)
+            </button>
+            <button onclick="testSummarizeIncident()" class="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-medium rounded-lg">
+              Resumir Incidencia Colectiva (POST /ai/summarize-incident)
+            </button>
+          </div>
+        </div>
+
+        <div>
+          <div class="text-xs text-gray-400 mb-1">Respuesta JSON Validada de Gemini:</div>
+          <pre id="geminiOutput" class="bg-gray-950 border border-gray-800 rounded-lg p-3 text-xs text-emerald-400 font-mono overflow-x-auto max-h-56">{ "status": "Haz clic en uno de los botones para invocar a Gemini..." }</pre>
+        </div>
+      </div>
+    </section>
+
+    <!-- Sección de Incrustación de Looker Studio (RF-GCP-11, 18) -->
+    <section class="card p-5 space-y-3">
+      <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
+        <div>
+          <h2 class="text-lg font-semibold text-white">📊 Informe Ejecutivo en Looker Studio (RF-GCP-11, RF-GCP-20)</h2>
+          <p class="text-xs text-gray-400">Pega aquí el enlace de inserción (Embed URL) de tu informe de Looker Studio conectado a BigQuery</p>
+        </div>
+        <div class="flex gap-2">
+          <input id="lookerUrlInput" type="text" placeholder="https://lookerstudio.google.com/embed/reporting/..."
+            class="bg-gray-900 border border-gray-700 rounded-lg px-3 py-1.5 text-xs text-white w-80" />
+          <button onclick="loadLookerIframe()" class="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium rounded-lg">
+            Incrustar Looker
+          </button>
+        </div>
+      </div>
+      <div id="lookerContainer" class="w-full h-24 flex items-center justify-center border border-dashed border-gray-800 rounded-lg text-xs text-gray-500">
+        Cuando crees el reporte en Looker Studio sobre tu dataset <code>telecorp_analytics</code>, pega su URL de inserción arriba para verlo embebido aquí.
+      </div>
+    </section>
+
+  </div>
+
+  <script>
+    let map;
+    let markersLayer;
+
+    function initMap() {
+      map = L.map('map').setView([-12.06, -77.04], 11);
+      L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+        attribution: '&copy; OpenStreetMap & CartoDB'
+      }).addTo(map);
+      markersLayer = L.layerGroup().addTo(map);
+    }
+
+    async function loadDashboard() {
+      const res = await fetch('/analytics/summary');
+      const data = await res.json();
+
+      document.getElementById('kpiTelemetry').textContent = data.kpis.total_telemetry_records.toLocaleString();
+      document.getElementById('kpiEvents').textContent = data.kpis.total_antenna_events.toLocaleString();
+      document.getElementById('kpiIncidents').textContent = data.kpis.total_incidents.toLocaleString();
+      document.getElementById('kpiHighRisk').textContent = data.kpis.high_risk_predictions_count;
+      document.getElementById('kpiStructural').textContent = data.kpis.structural_candidates_count;
+      document.getElementById('kpiRejections').textContent = data.kpis.rejected_payloads_count;
+      document.getElementById('modelBadge').textContent = `Modelo: ${data.kpis.model_version}`;
+
+      // Renderizar tabla de zonas y mapa
+      const zBody = document.getElementById('zonesTable');
+      zBody.innerHTML = '';
+      markersLayer.clearLayers();
+
+      data.critical_zones.forEach(z => {
+        const color = z.total_affected_users > 150 ? '#f43f5e' : (z.total_affected_users > 40 ? '#f59e0b' : '#10b981');
+        L.circleMarker([z.lat, z.lng], {
+          radius: Math.min(22, Math.max(8, Math.sqrt(z.total_affected_users || 10))),
+          fillColor: color,
+          color: '#ffffff',
+          weight: 1,
+          fillOpacity: 0.75
+        }).bindPopup(`<b>${z.zone_id}: ${z.zone_name}</b><br/>Tipo: ${z.zone_type}<br/>Afectados: ${z.total_affected_users}<br/>Sitios: ${z.critical_sites}`).addTo(markersLayer);
+
+        zBody.innerHTML += `
+          <tr class="hover:bg-gray-800/40">
+            <td class="py-2 font-medium text-white">${z.zone_id}<div class="text-[11px] text-gray-400">${z.zone_name}</div></td>
+            <td class="py-2"><span class="px-1.5 py-0.5 rounded bg-gray-800 text-blue-300 text-[10px]">${z.zone_type}</span><div class="text-[10px] text-gray-400 truncate max-w-[180px]">${z.critical_sites}</div></td>
+            <td class="py-2 text-right font-mono">${z.total_incidents} (${z.collective_incidents} col.)</td>
+            <td class="py-2 text-right font-mono font-bold text-rose-400">${z.total_affected_users}</td>
+            <td class="py-2 text-right font-mono">${z.avg_detection_time_sec}s</td>
+          </tr>`;
+      });
+
+      // Renderizar predicciones BQML
+      const pBody = document.getElementById('predictionsTable');
+      pBody.innerHTML = '';
+      data.predictions.forEach(p => {
+        const pct = (p.failure_probability * 100).toFixed(1);
+        const barColor = p.failure_probability >= 0.70 ? 'bg-rose-500' : (p.failure_probability >= 0.50 ? 'bg-amber-500' : 'bg-emerald-500');
+        const actionBadge = p.failure_probability >= 0.70
+          ? '<span class="px-2 py-0.5 rounded bg-rose-500/20 text-rose-400 font-semibold">Alerta Preventiva (≥0.70)</span>'
+          : (p.failure_probability >= 0.50
+            ? '<span class="px-2 py-0.5 rounded bg-amber-500/20 text-amber-400">Enviada a AWS (≥0.50)</span>'
+            : '<span class="text-gray-500">Monitoreo normal</span>');
+
+        pBody.innerHTML += `
+          <tr class="hover:bg-gray-800/40">
+            <td class="py-2 font-mono font-semibold text-white">${p.antenna_id}</td>
+            <td class="py-2 text-gray-300">${p.zone_id}</td>
+            <td class="py-2"><span class="font-mono text-xs ${p.predicted_state !== 'NORMAL' ? 'text-rose-400 font-bold' : 'text-emerald-400'}">${p.predicted_state}</span> (${p.horizon_hours}h)</td>
+            <td class="py-2 w-44">
+              <div class="flex items-center gap-2">
+                <div class="w-full bg-gray-800 h-2 rounded-full overflow-hidden">
+                  <div class="${barColor} h-2" style="width:${pct}%"></div>
+                </div>
+                <span class="font-mono text-white w-12 text-right">${pct}%</span>
+              </div>
+            </td>
+            <td class="py-2">${actionBadge}</td>
+          </tr>`;
+      });
+
+      // Renderizar antenas problemáticas y fallas estructurales
+      const aBody = document.getElementById('antennasTable');
+      aBody.innerHTML = '';
+      data.problematic_antennas.forEach(a => {
+        const structBadge = a.is_structural_candidate
+          ? '<span class="px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/40 font-semibold">⚠️ Falla Estructural</span>'
+          : '<span class="text-gray-400">Aislada</span>';
+        aBody.innerHTML += `
+          <tr class="hover:bg-gray-800/40">
+            <td class="py-2 font-mono font-semibold text-white">${a.antenna_id}</td>
+            <td class="py-2 text-gray-300">${a.zone_id}</td>
+            <td class="py-2 text-right font-mono text-rose-400">${a.failure_readings}</td>
+            <td class="py-2 text-right font-mono text-amber-400">${a.saturation_readings}</td>
+            <td class="py-2 text-right font-mono font-bold text-white">${a.distinct_anomaly_days} días</td>
+            <td class="py-2 text-center">${structBadge}</td>
+          </tr>`;
+      });
+
+      // Renderizar rechazos DLQ
+      if (data.rejections && data.rejections.length > 0) {
+        document.getElementById('rejectionsBox').innerHTML = data.rejections.map(r =>
+          `<div class="text-rose-400">[${r.rejected_at}] <b>${r.endpoint}</b> → ${r.error_reason}</div>`
+        ).join('');
+      }
+    }
+
+    async function runPredictions() {
+      document.getElementById('pushStatusBadge').textContent = 'Ejecutando ML.PREDICT...';
+      const res = await fetch('/predictions/run', { method: 'POST' });
+      const data = await res.json();
+      document.getElementById('pushStatusBadge').textContent = `Push AWS (${data.high_risk_sent_to_aws_count} env.): ${data.aws_push_status}`;
+      await loadDashboard();
+    }
+
+    async function retrainModel() {
+      document.getElementById('modelBadge').textContent = 'Reentrenando BQML...';
+      const res = await fetch('/model/retrain', { method: 'POST' });
+      const data = await res.json();
+      await loadDashboard();
+    }
+
+    async function simulateInvalidPayload() {
+      await fetch('/ingest/telemetry', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ antenna_id: 'ANT-FANTASMA-999', zone_id: 'ZONA-99', traffic_gb_min: -45 })
+      });
+      await loadDashboard();
+    }
+
+    async function testClassifyReport() {
+      const text = document.getElementById('reportText').value;
+      document.getElementById('geminiOutput').textContent = 'Consultando Vertex AI (Gemini)...';
+      const res = await fetch('/ai/classify-report', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ report_id: 'REP-DEMO-01', text, declared_category: 'SIN_INTERNET', zone_type: 'SALUD' })
+      });
+      const data = await res.json();
+      document.getElementById('geminiOutput').textContent = JSON.stringify(data, null, 2);
+    }
+
+    async function testSummarizeIncident() {
+      const sample = document.getElementById('reportText').value;
+      document.getElementById('geminiOutput').textContent = 'Generando resumen operativo con Gemini...';
+      const res = await fetch('/ai/summarize-incident', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          incident_id: 'INC-88412',
+          incident_type: 'COLECTIVA',
+          zone: { id: 'LIM-JESUSMARIA', name: 'Jesús María', type: 'SALUD' },
+          users_affected: 48,
+          antenna_evidence: [{ antenna_id: 'ANT-LIM-021', state: 'CAIDA' }],
+          report_samples: [sample]
+        })
+      });
+      const data = await res.json();
+      document.getElementById('geminiOutput').textContent = JSON.stringify(data, null, 2);
+    }
+
+    function loadLookerIframe() {
+      const url = document.getElementById('lookerUrlInput').value.trim();
+      if (!url) return;
+      const container = document.getElementById('lookerContainer');
+      container.className = 'w-full h-[550px] border border-gray-800 rounded-lg overflow-hidden';
+      container.innerHTML = `<iframe src="${url}" class="w-full h-full border-0" allowfullscreen></iframe>`;
+    }
+
+    initMap();
+    loadDashboard();
+  </script>
+</body>
+</html>

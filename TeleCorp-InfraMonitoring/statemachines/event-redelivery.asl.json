@@ -1,0 +1,241 @@
+{
+  "Comment": "event-redelivery: reenvia los mensajes de las DLQ cuando el receptor se recupera (RF-AWS-12, 16)",
+  "StartAt": "Init",
+  "States": {
+    "Init": {
+      "Type": "Pass",
+      "Parameters": {
+        "defaults": {
+          "wait_s": 300,
+          "settle_s": 60,
+          "max_attempts": 3
+        },
+        "input.$": "$"
+      },
+      "Next": "Merge"
+    },
+    "Merge": {
+      "Type": "Pass",
+      "Parameters": {
+        "params.$": "States.JsonMerge($.defaults, $.input, false)"
+      },
+      "Next": "GiveTimeToReceiver"
+    },
+    "GiveTimeToReceiver": {
+      "Type": "Wait",
+      "SecondsPath": "$.params.wait_s",
+      "Next": "Queues"
+    },
+    "Queues": {
+      "Type": "Pass",
+      "Parameters": {
+        "items": [
+          {
+            "name": "azure",
+            "dlq_url": "${AzureDlqUrl}",
+            "dlq_arn": "${AzureDlqArn}",
+            "source_url": "${AzureUrl}",
+            "source_arn": "${AzureArn}"
+          },
+          {
+            "name": "gcp-events",
+            "dlq_url": "${GcpEventsDlqUrl}",
+            "dlq_arn": "${GcpEventsDlqArn}",
+            "source_url": "${GcpEventsUrl}",
+            "source_arn": "${GcpEventsArn}"
+          },
+          {
+            "name": "gcp-telemetry",
+            "dlq_url": "${GcpTelemetryDlqUrl}",
+            "dlq_arn": "${GcpTelemetryDlqArn}",
+            "source_url": "${GcpTelemetryUrl}",
+            "source_arn": "${GcpTelemetryArn}"
+          }
+        ],
+        "params.$": "$.params"
+      },
+      "Next": "Redeliver"
+    },
+    "Redeliver": {
+      "Type": "Map",
+      "ItemsPath": "$.items",
+      "MaxConcurrency": 3,
+      "ItemSelector": {
+        "q.$": "$$.Map.Item.Value",
+        "params.$": "$.params"
+      },
+      "ItemProcessor": {
+        "ProcessorConfig": {
+          "Mode": "INLINE"
+        },
+        "StartAt": "InitAttempt",
+        "States": {
+          "InitAttempt": {
+            "Type": "Pass",
+            "Result": 0,
+            "ResultPath": "$.attempt",
+            "Next": "GetDepth"
+          },
+          "GetDepth": {
+            "Type": "Task",
+            "Resource": "arn:aws:states:::aws-sdk:sqs:getQueueAttributes",
+            "Parameters": {
+              "QueueUrl.$": "$.q.dlq_url",
+              "AttributeNames": [
+                "ApproximateNumberOfMessages"
+              ]
+            },
+            "ResultPath": "$.raw",
+            "Retry": [
+              {
+                "ErrorEquals": [
+                  "States.ALL"
+                ],
+                "IntervalSeconds": 2,
+                "MaxAttempts": 3,
+                "BackoffRate": 2.0
+              }
+            ],
+            "Next": "ToNumber"
+          },
+          "ToNumber": {
+            "Type": "Pass",
+            "Parameters": {
+              "q.$": "$.q",
+              "params.$": "$.params",
+              "attempt.$": "$.attempt",
+              "depth.$": "States.StringToJson($.raw.Attributes.ApproximateNumberOfMessages)"
+            },
+            "Next": "AnyLeft?"
+          },
+          "AnyLeft?": {
+            "Type": "Choice",
+            "Choices": [
+              {
+                "And": [
+                  {
+                    "Variable": "$.depth",
+                    "NumericGreaterThan": 0
+                  },
+                  {
+                    "Variable": "$.attempt",
+                    "NumericLessThanPath": "$.params.max_attempts"
+                  }
+                ],
+                "Next": "MoveMessages"
+              },
+              {
+                "Variable": "$.depth",
+                "NumericGreaterThan": 0,
+                "Next": "NotifyStuck"
+              }
+            ],
+            "Default": "QueueDone"
+          },
+          "MoveMessages": {
+            "Type": "Task",
+            "Resource": "arn:aws:states:::aws-sdk:sqs:startMessageMoveTask",
+            "Parameters": {
+              "SourceArn.$": "$.q.dlq_arn"
+            },
+            "ResultPath": null,
+            "Next": "IncAttempt",
+            "Catch": [
+              {
+                "ErrorEquals": [
+                  "States.ALL"
+                ],
+                "ResultPath": null,
+                "Next": "MoveViaLambda"
+              }
+            ]
+          },
+          "MoveViaLambda": {
+            "Type": "Task",
+            "Resource": "arn:aws:states:::lambda:invoke",
+            "Parameters": {
+              "FunctionName": "${DlqRedriveArn}",
+              "Payload": {
+                "dlq_url.$": "$.q.dlq_url",
+                "source_url.$": "$.q.source_url"
+              }
+            },
+            "ResultSelector": {
+              "Payload.$": "$.Payload"
+            },
+            "ResultPath": null,
+            "Next": "IncAttempt",
+            "Retry": [
+              {
+                "ErrorEquals": [
+                  "States.ALL"
+                ],
+                "IntervalSeconds": 2,
+                "MaxAttempts": 3,
+                "BackoffRate": 2.0
+              }
+            ]
+          },
+          "IncAttempt": {
+            "Type": "Pass",
+            "Parameters": {
+              "q.$": "$.q",
+              "params.$": "$.params",
+              "attempt.$": "States.MathAdd($.attempt, 1)"
+            },
+            "Next": "Settle"
+          },
+          "Settle": {
+            "Type": "Wait",
+            "SecondsPath": "$.params.settle_s",
+            "Next": "GetDepth"
+          },
+          "NotifyStuck": {
+            "Type": "Task",
+            "Resource": "arn:aws:states:::sns:publish",
+            "Parameters": {
+              "TopicArn": "${OpsTopicArn}",
+              "Subject": "PulsoRed: mensajes atascados en una DLQ",
+              "Message.$": "States.Format('Quedan {} mensajes en la DLQ {} tras {} intentos de reenvio.', $.depth, $.q.name, $.attempt)"
+            },
+            "ResultPath": null,
+            "Next": "QueueDone"
+          },
+          "QueueDone": {
+            "Type": "Succeed"
+          }
+        }
+      },
+      "ResultPath": null,
+      "Next": "Done",
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.error",
+          "Next": "NotifyOps"
+        }
+      ]
+    },
+    "NotifyOps": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::sns:publish",
+      "Parameters": {
+        "TopicArn": "${OpsTopicArn}",
+        "Subject": "PulsoRed: fallo en event-redelivery",
+        "Message.$": "States.Format('Fallo en event-redelivery: {}', States.JsonToString($.error))"
+      },
+      "ResultPath": null,
+      "Next": "Failed"
+    },
+    "Failed": {
+      "Type": "Fail",
+      "Error": "RedeliveryFailed",
+      "Cause": "Ver el aviso enviado a operadores"
+    },
+    "Done": {
+      "Type": "Succeed"
+    }
+  }
+}

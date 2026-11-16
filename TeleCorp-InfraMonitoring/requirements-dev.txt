@@ -1,0 +1,9 @@
+boto3
+awscli
+aws-sam-cli
+cfn-lint
+pytest
+moto[dynamodb,sqs,sns,s3,ssm,secretsmanager,stepfunctions,cloudformation,apigateway]
+jsonschema
+tzdata
+rfc3339-validator

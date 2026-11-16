@@ -1,0 +1,17 @@
+.env
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+backend/local.settings.json
+infra/outputs.local.json
+infra/state.json
+.azure/
+*.local.*
+node_modules/
+TeleCorp-InfraMonitoring/
+TeleCorp-DataAnalytics/
+
+diagrama/
+pedido/
+endpoints/

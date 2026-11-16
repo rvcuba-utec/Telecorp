@@ -1,0 +1,151 @@
+openapi: 3.0.3
+info:
+  title: PulsoRed - API del modulo AWS (infraestructura y automatizacion)
+  version: "1.0.0"
+  description: >
+    Contrato de las rutas que AWS EXPONE. Lo que AWS ENVIA a Azure y GCP esta en contracts/events
+    y en docs/global/GCP.md. Todas las rutas (excepto /health) exigen la cabecera X-API-Key.
+    Los cuerpos de POST usan el sobre comun (contracts/events/envelope.schema.json).
+servers:
+  - url: https://{api_id}.execute-api.{region}.amazonaws.com
+    variables:
+      api_id: { default: "REEMPLAZAR" }
+      region: { default: "us-east-1" }
+security:
+  - ApiKey: []
+paths:
+  /health:
+    get:
+      summary: Estado del servicio
+      security: []
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { type: object, properties: { status: { type: string }, version: { type: string } } } } } }
+  /telemetry:
+    post:
+      summary: Recibir metricas de antenas (RF-AWS-01..05). Llamantes - antenas/simulador/pruebas de carga
+      description: Cuerpo = sobre con type=telemetry.batch. Aceptacion parcial - las filas invalidas se rechazan y se informan.
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/Envelope" } } }
+      responses:
+        "202": { description: Aceptado, content: { application/json: { schema: { $ref: "#/components/schemas/IngestResult" } } } }
+        "400": { description: Sobre o payload invalido (no reintentar) }
+        "401": { description: Clave ausente o invalida }
+        "429": { description: Limitacion de tasa - reintentar con espera creciente }
+  /antennas:
+    get:
+      summary: Estado actual y ultima metrica por antena (RF-AWS-07)
+      parameters:
+        - { name: zone_id, in: query, schema: { type: string } }
+        - { name: state, in: query, schema: { type: string, enum: [NORMAL, CAIDA, INHABILITADA, SATURADA] } }
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { type: object, properties: { generated_at: { type: string, format: date-time }, antennas: { type: array, items: { $ref: "#/components/schemas/Antenna" } } } } } } }
+  /antennas/{antenna_id}:
+    get:
+      summary: Detalle de una antena, con su prediccion vigente si existe
+      parameters: [ { name: antenna_id, in: path, required: true, schema: { type: string } } ]
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/Antenna" } } } }
+        "404": { description: Antena inexistente }
+  /antennas/{antenna_id}/metrics:
+    get:
+      summary: Metricas recientes (por defecto ultimos 60 minutos; maximo 72 horas)
+      parameters:
+        - { name: antenna_id, in: path, required: true, schema: { type: string } }
+        - { name: minutes, in: query, schema: { type: integer, default: 60, maximum: 4320 } }
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { type: object, properties: { antenna_id: { type: string }, samples: { type: array, items: { type: object, properties: { ts: { type: string }, gb_per_min: { type: number }, state: { type: string } } } } } } } } }
+  /predictions:
+    post:
+      summary: GCP envia predicciones (RF-AWS-20). Solo clave de GCP
+      description: Cuerpo = sobre con type=prediction.batch. AWS aplica la regla de alerta (probabilidad >= PRED_ALERT_MIN y horizonte <= 24 h).
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/Envelope" } } }
+      responses:
+        "202": { description: Aceptado, content: { application/json: { schema: { $ref: "#/components/schemas/IngestResult" } } } }
+        "400": { description: Invalido (no reintentar) }
+        "401": { description: Clave invalida }
+    get:
+      summary: Predicciones vigentes, ordenadas por probabilidad desc (RF-AWS-22)
+      parameters:
+        - { name: zone_id, in: query, schema: { type: string } }
+        - { name: antenna_id, in: query, schema: { type: string } }
+        - { name: min_probability, in: query, schema: { type: number, default: 0.5 } }
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { type: object } } } }
+  /config:
+    get:
+      summary: Configuracion global versionada (RF-AWS-24). Nunca incluye secretos
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { type: object, properties: { config_version: { type: string }, zones_version: { type: string }, items: { type: object, additionalProperties: true } } } } } }
+  /simulator/status:
+    get:
+      summary: Estado del simulador. Solo clave de operador
+      responses: { "200": { description: OK } }
+  /simulator/start:
+    post:
+      summary: Activar el simulador. Solo operador
+      requestBody: { content: { application/json: { schema: { type: object, properties: { auto: { type: boolean }, episode_rate_per_antenna_per_day: { type: number } } } } } }
+      responses: { "200": { description: OK } }
+  /simulator/stop:
+    post:
+      summary: Desactivar el simulador y cancelar escenarios. Solo operador
+      responses: { "200": { description: OK } }
+  /simulator/scenario:
+    post:
+      summary: Disparar un escenario. Solo operador
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [type]
+              properties:
+                type: { type: string, enum: [FALLA_ABRUPTA, DEGRADACION, SATURACION, APAGON_ZONA, INTERMITENTE, NORMAL] }
+                antenna_id: { type: string }
+                zone_id: { type: string }
+                to: { type: string, enum: [CAIDA, INHABILITADA, SATURADA] }
+                ramp_minutes: { type: integer, default: 45 }
+                hold_minutes: { type: integer, default: 20 }
+                recovery: { type: string, enum: [ABRUPTA, GRADUAL], default: ABRUPTA }
+      responses:
+        "200": { description: Escenario registrado }
+        "400": { description: Parametros invalidos }
+components:
+  securitySchemes:
+    ApiKey: { type: apiKey, in: header, name: X-API-Key }
+  schemas:
+    Envelope:
+      type: object
+      required: [event_id, type, schema_version, source, occurred_at, correlation_id, payload]
+      properties:
+        event_id: { type: string, format: uuid }
+        type: { type: string }
+        schema_version: { type: string }
+        source: { type: string, enum: [aws, azure, gcp] }
+        occurred_at: { type: string, format: date-time }
+        correlation_id: { type: string }
+        payload: { type: object }
+    IngestResult:
+      type: object
+      properties:
+        accepted: { type: integer }
+        duplicates: { type: integer }
+        rejected:
+          type: array
+          items: { type: object, properties: { index: { type: integer }, reason: { type: string } } }
+    Antenna:
+      type: object
+      properties:
+        antenna_id: { type: string }
+        zone_id: { type: string }
+        lat: { type: number }
+        lng: { type: number }
+        state: { type: string, enum: [NORMAL, CAIDA, INHABILITADA, SATURADA] }
+        state_since: { type: string, format: date-time }
+        last_seen: { type: string, format: date-time }
+        last_gb_per_min: { type: number }
+        episode_id: { type: string, nullable: true }
+        prediction: { type: object, nullable: true }

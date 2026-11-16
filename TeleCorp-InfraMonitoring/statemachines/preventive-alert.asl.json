@@ -1,0 +1,187 @@
+{
+  "Comment": "preventive-alert: valida la prediccion, registra la alerta y emite PREVENTIVA (RF-AWS-14, 21)",
+  "StartAt": "ValidatePrediction",
+  "States": {
+    "ValidatePrediction": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${CheckPreventiveArn}",
+        "Payload.$": "$"
+      },
+      "ResultSelector": {
+        "Payload.$": "$.Payload"
+      },
+      "ResultPath": "$.check",
+      "Next": "Eligible?",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2.0
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.error",
+          "Next": "NotifyOps"
+        }
+      ]
+    },
+    "Eligible?": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.check.Payload.eligible",
+          "BooleanEquals": true,
+          "Next": "RegisterAlert"
+        }
+      ],
+      "Default": "Discarded"
+    },
+    "RegisterAlert": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::dynamodb:updateItem",
+      "Parameters": {
+        "TableName": "${AntennasTable}",
+        "Key": {
+          "antenna_id": {
+            "S.$": "$.antenna_id"
+          }
+        },
+        "UpdateExpression": "SET preventive_until = :v",
+        "ConditionExpression": "attribute_not_exists(preventive_until) OR preventive_until < :n",
+        "ExpressionAttributeValues": {
+          ":v": {
+            "S.$": "$.check.Payload.valid_until"
+          },
+          ":n": {
+            "S.$": "$.check.Payload.now"
+          }
+        }
+      },
+      "ResultPath": null,
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2.0
+        }
+      ],
+      "Next": "MarkPrediction",
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "DynamoDB.ConditionalCheckFailedException"
+          ],
+          "ResultPath": null,
+          "Next": "Discarded"
+        },
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.error",
+          "Next": "NotifyOps"
+        }
+      ]
+    },
+    "MarkPrediction": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::dynamodb:updateItem",
+      "Parameters": {
+        "TableName": "${PredictionsTable}",
+        "Key": {
+          "antenna_id": {
+            "S.$": "$.antenna_id"
+          }
+        },
+        "UpdateExpression": "SET alert_status = :s",
+        "ExpressionAttributeValues": {
+          ":s": {
+            "S": "ALERTADA"
+          }
+        }
+      },
+      "ResultPath": null,
+      "Next": "EmitPreventive",
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.markError",
+          "Next": "EmitPreventive"
+        }
+      ]
+    },
+    "EmitPreventive": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${EmitEventArn}",
+        "Payload.$": "$.check.Payload.event"
+      },
+      "ResultSelector": {
+        "Payload.$": "$.Payload"
+      },
+      "ResultPath": "$.emitted",
+      "Next": "Done",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2.0
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.error",
+          "Next": "NotifyOps"
+        }
+      ]
+    },
+    "Discarded": {
+      "Type": "Pass",
+      "Parameters": {
+        "discarded": true,
+        "reason.$": "States.Format('{}', $.check.Payload.reason)"
+      },
+      "Next": "Done"
+    },
+    "NotifyOps": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::sns:publish",
+      "Parameters": {
+        "TopicArn": "${OpsTopicArn}",
+        "Subject": "PulsoRed: fallo en preventive-alert",
+        "Message.$": "States.Format('Fallo en preventive-alert (antena {}): {}', $.antenna_id, States.JsonToString($.error))"
+      },
+      "ResultPath": null,
+      "Next": "Failed"
+    },
+    "Failed": {
+      "Type": "Fail",
+      "Error": "PreventiveFailed",
+      "Cause": "Ver el aviso enviado a operadores"
+    },
+    "Done": {
+      "Type": "Succeed"
+    }
+  }
+}

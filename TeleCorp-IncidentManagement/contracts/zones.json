@@ -1,0 +1,464 @@
+{
+  "zones_version": "1.0.0",
+  "note": "Catalogo unico compartido por AWS, Azure y GCP. Datos simulados.",
+  "zones": [
+    {
+      "zone_id": "LIM-SURCO",
+      "name": "Santiago de Surco",
+      "type": "RESIDENCIAL",
+      "centroid": {
+        "lat": -12.145,
+        "lng": -76.993
+      },
+      "critical_sites": [],
+      "antennas": [
+        {
+          "antenna_id": "ANT-LIM-001",
+          "lat": -12.145,
+          "lng": -76.993
+        },
+        {
+          "antenna_id": "ANT-LIM-002",
+          "lat": -12.141,
+          "lng": -76.99
+        },
+        {
+          "antenna_id": "ANT-LIM-003",
+          "lat": -12.149,
+          "lng": -76.99
+        },
+        {
+          "antenna_id": "ANT-LIM-004",
+          "lat": -12.142,
+          "lng": -76.997
+        },
+        {
+          "antenna_id": "ANT-LIM-005",
+          "lat": -12.148,
+          "lng": -76.997
+        }
+      ]
+    },
+    {
+      "zone_id": "LIM-MIRAFLORES",
+      "name": "Miraflores",
+      "type": "COMERCIAL",
+      "centroid": {
+        "lat": -12.1211,
+        "lng": -77.0297
+      },
+      "critical_sites": [],
+      "antennas": [
+        {
+          "antenna_id": "ANT-LIM-006",
+          "lat": -12.1211,
+          "lng": -77.0297
+        },
+        {
+          "antenna_id": "ANT-LIM-007",
+          "lat": -12.1171,
+          "lng": -77.0267
+        },
+        {
+          "antenna_id": "ANT-LIM-008",
+          "lat": -12.1251,
+          "lng": -77.0267
+        },
+        {
+          "antenna_id": "ANT-LIM-009",
+          "lat": -12.1181,
+          "lng": -77.0337
+        },
+        {
+          "antenna_id": "ANT-LIM-010",
+          "lat": -12.1241,
+          "lng": -77.0337
+        }
+      ]
+    },
+    {
+      "zone_id": "LIM-SANISIDRO",
+      "name": "San Isidro",
+      "type": "COMERCIAL",
+      "centroid": {
+        "lat": -12.0977,
+        "lng": -77.0365
+      },
+      "critical_sites": [],
+      "antennas": [
+        {
+          "antenna_id": "ANT-LIM-011",
+          "lat": -12.0977,
+          "lng": -77.0365
+        },
+        {
+          "antenna_id": "ANT-LIM-012",
+          "lat": -12.0937,
+          "lng": -77.0335
+        },
+        {
+          "antenna_id": "ANT-LIM-013",
+          "lat": -12.1017,
+          "lng": -77.0335
+        },
+        {
+          "antenna_id": "ANT-LIM-014",
+          "lat": -12.0947,
+          "lng": -77.0405
+        },
+        {
+          "antenna_id": "ANT-LIM-015",
+          "lat": -12.1007,
+          "lng": -77.0405
+        }
+      ]
+    },
+    {
+      "zone_id": "LIM-CALLAO",
+      "name": "Callao",
+      "type": "INDUSTRIAL",
+      "centroid": {
+        "lat": -12.0566,
+        "lng": -77.1181
+      },
+      "critical_sites": [
+        "Parque industrial (simulado)",
+        "Terminal de carga (simulado)"
+      ],
+      "antennas": [
+        {
+          "antenna_id": "ANT-LIM-016",
+          "lat": -12.0566,
+          "lng": -77.1181
+        },
+        {
+          "antenna_id": "ANT-LIM-017",
+          "lat": -12.0526,
+          "lng": -77.1151
+        },
+        {
+          "antenna_id": "ANT-LIM-018",
+          "lat": -12.0606,
+          "lng": -77.1151
+        },
+        {
+          "antenna_id": "ANT-LIM-019",
+          "lat": -12.0536,
+          "lng": -77.1221
+        },
+        {
+          "antenna_id": "ANT-LIM-020",
+          "lat": -12.0596,
+          "lng": -77.1221
+        }
+      ]
+    },
+    {
+      "zone_id": "LIM-ATE",
+      "name": "Ate",
+      "type": "INDUSTRIAL",
+      "centroid": {
+        "lat": -12.026,
+        "lng": -76.918
+      },
+      "critical_sites": [
+        "Zona fabril (simulada)"
+      ],
+      "antennas": [
+        {
+          "antenna_id": "ANT-LIM-021",
+          "lat": -12.026,
+          "lng": -76.918
+        },
+        {
+          "antenna_id": "ANT-LIM-022",
+          "lat": -12.022,
+          "lng": -76.915
+        },
+        {
+          "antenna_id": "ANT-LIM-023",
+          "lat": -12.03,
+          "lng": -76.915
+        },
+        {
+          "antenna_id": "ANT-LIM-024",
+          "lat": -12.023,
+          "lng": -76.922
+        },
+        {
+          "antenna_id": "ANT-LIM-025",
+          "lat": -12.029,
+          "lng": -76.922
+        }
+      ]
+    },
+    {
+      "zone_id": "LIM-SMP",
+      "name": "San Martin de Porres",
+      "type": "RESIDENCIAL",
+      "centroid": {
+        "lat": -12.009,
+        "lng": -77.087
+      },
+      "critical_sites": [],
+      "antennas": [
+        {
+          "antenna_id": "ANT-LIM-026",
+          "lat": -12.009,
+          "lng": -77.087
+        },
+        {
+          "antenna_id": "ANT-LIM-027",
+          "lat": -12.005,
+          "lng": -77.084
+        },
+        {
+          "antenna_id": "ANT-LIM-028",
+          "lat": -12.013,
+          "lng": -77.084
+        },
+        {
+          "antenna_id": "ANT-LIM-029",
+          "lat": -12.006,
+          "lng": -77.091
+        },
+        {
+          "antenna_id": "ANT-LIM-030",
+          "lat": -12.012,
+          "lng": -77.091
+        }
+      ]
+    },
+    {
+      "zone_id": "LIM-SANMIGUEL",
+      "name": "San Miguel",
+      "type": "EDUCATIVA",
+      "centroid": {
+        "lat": -12.077,
+        "lng": -77.091
+      },
+      "critical_sites": [
+        "Campus universitario (simulado)"
+      ],
+      "antennas": [
+        {
+          "antenna_id": "ANT-LIM-031",
+          "lat": -12.077,
+          "lng": -77.091
+        },
+        {
+          "antenna_id": "ANT-LIM-032",
+          "lat": -12.073,
+          "lng": -77.088
+        },
+        {
+          "antenna_id": "ANT-LIM-033",
+          "lat": -12.081,
+          "lng": -77.088
+        },
+        {
+          "antenna_id": "ANT-LIM-034",
+          "lat": -12.074,
+          "lng": -77.095
+        },
+        {
+          "antenna_id": "ANT-LIM-035",
+          "lat": -12.08,
+          "lng": -77.095
+        }
+      ]
+    },
+    {
+      "zone_id": "LIM-CERCADO",
+      "name": "Cercado de Lima",
+      "type": "CRITICA",
+      "centroid": {
+        "lat": -12.0464,
+        "lng": -77.0428
+      },
+      "critical_sites": [
+        "Central de emergencias (simulada)",
+        "Sede de gobierno (simulada)"
+      ],
+      "antennas": [
+        {
+          "antenna_id": "ANT-LIM-036",
+          "lat": -12.0464,
+          "lng": -77.0428
+        },
+        {
+          "antenna_id": "ANT-LIM-037",
+          "lat": -12.0424,
+          "lng": -77.0398
+        },
+        {
+          "antenna_id": "ANT-LIM-038",
+          "lat": -12.0504,
+          "lng": -77.0398
+        },
+        {
+          "antenna_id": "ANT-LIM-039",
+          "lat": -12.0434,
+          "lng": -77.0468
+        },
+        {
+          "antenna_id": "ANT-LIM-040",
+          "lat": -12.0494,
+          "lng": -77.0468
+        }
+      ]
+    },
+    {
+      "zone_id": "LIM-JESUSMARIA",
+      "name": "Jesus Maria",
+      "type": "SALUD",
+      "centroid": {
+        "lat": -12.07,
+        "lng": -77.051
+      },
+      "critical_sites": [
+        "Hospital central (simulado)"
+      ],
+      "antennas": [
+        {
+          "antenna_id": "ANT-LIM-041",
+          "lat": -12.07,
+          "lng": -77.051
+        },
+        {
+          "antenna_id": "ANT-LIM-042",
+          "lat": -12.066,
+          "lng": -77.048
+        },
+        {
+          "antenna_id": "ANT-LIM-043",
+          "lat": -12.074,
+          "lng": -77.048
+        },
+        {
+          "antenna_id": "ANT-LIM-044",
+          "lat": -12.067,
+          "lng": -77.055
+        },
+        {
+          "antenna_id": "ANT-LIM-045",
+          "lat": -12.073,
+          "lng": -77.055
+        }
+      ]
+    },
+    {
+      "zone_id": "LIM-SJL",
+      "name": "San Juan de Lurigancho",
+      "type": "RESIDENCIAL",
+      "centroid": {
+        "lat": -11.977,
+        "lng": -77.008
+      },
+      "critical_sites": [],
+      "antennas": [
+        {
+          "antenna_id": "ANT-LIM-046",
+          "lat": -11.977,
+          "lng": -77.008
+        },
+        {
+          "antenna_id": "ANT-LIM-047",
+          "lat": -11.973,
+          "lng": -77.005
+        },
+        {
+          "antenna_id": "ANT-LIM-048",
+          "lat": -11.981,
+          "lng": -77.005
+        },
+        {
+          "antenna_id": "ANT-LIM-049",
+          "lat": -11.974,
+          "lng": -77.012
+        },
+        {
+          "antenna_id": "ANT-LIM-050",
+          "lat": -11.98,
+          "lng": -77.012
+        }
+      ]
+    },
+    {
+      "zone_id": "LIM-LAMOLINA",
+      "name": "La Molina",
+      "type": "EDUCATIVA",
+      "centroid": {
+        "lat": -12.085,
+        "lng": -76.91
+      },
+      "critical_sites": [
+        "Colegio y universidad (simulados)"
+      ],
+      "antennas": [
+        {
+          "antenna_id": "ANT-LIM-051",
+          "lat": -12.085,
+          "lng": -76.91
+        },
+        {
+          "antenna_id": "ANT-LIM-052",
+          "lat": -12.081,
+          "lng": -76.907
+        },
+        {
+          "antenna_id": "ANT-LIM-053",
+          "lat": -12.089,
+          "lng": -76.907
+        },
+        {
+          "antenna_id": "ANT-LIM-054",
+          "lat": -12.082,
+          "lng": -76.914
+        },
+        {
+          "antenna_id": "ANT-LIM-055",
+          "lat": -12.088,
+          "lng": -76.914
+        }
+      ]
+    },
+    {
+      "zone_id": "LIM-VES",
+      "name": "Villa El Salvador",
+      "type": "RESIDENCIAL",
+      "centroid": {
+        "lat": -12.213,
+        "lng": -76.936
+      },
+      "critical_sites": [],
+      "antennas": [
+        {
+          "antenna_id": "ANT-LIM-056",
+          "lat": -12.213,
+          "lng": -76.936
+        },
+        {
+          "antenna_id": "ANT-LIM-057",
+          "lat": -12.209,
+          "lng": -76.933
+        },
+        {
+          "antenna_id": "ANT-LIM-058",
+          "lat": -12.217,
+          "lng": -76.933
+        },
+        {
+          "antenna_id": "ANT-LIM-059",
+          "lat": -12.21,
+          "lng": -76.94
+        },
+        {
+          "antenna_id": "ANT-LIM-060",
+          "lat": -12.216,
+          "lng": -76.94
+        }
+      ]
+    }
+  ]
+}

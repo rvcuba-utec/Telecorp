@@ -1,0 +1,20 @@
+# Repositorios de referencia locales
+reference/
+references/
+
+# Datos sintéticos generados localmente
+data/*.jsonl
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+crash.log
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env

@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "envelope.schema.json",
+  "title": "Sobre comun de mensajes entre nubes",
+  "type": "object",
+  "required": ["event_id", "type", "schema_version", "source", "occurred_at", "correlation_id", "payload"],
+  "additionalProperties": false,
+  "properties": {
+    "event_id": { "type": "string", "format": "uuid", "description": "Unico por mensaje. Los reintentos reutilizan el mismo id; el receptor es idempotente." },
+    "type": { "enum": ["telemetry.batch", "antenna.event", "prediction.batch", "incident.upsert", "report.upsert"] },
+    "schema_version": { "type": "string", "pattern": "^\\d+\\.\\d+$" },
+    "source": { "enum": ["aws", "azure", "gcp"] },
+    "occurred_at": { "type": "string", "format": "date-time", "description": "ISO-8601 UTC" },
+    "correlation_id": { "type": "string" },
+    "payload": { "type": "object" }
+  }
+}

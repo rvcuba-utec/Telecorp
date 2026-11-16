@@ -1,0 +1,17 @@
+# Secretos y entorno local (todo lo instalado y las credenciales viven aquí)
+.local-env/
+config.env
+.env
+.env.*
+!.env.example
+*.pem
+credentials
+samconfig.toml
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+# SAM / Node
+.aws-sam/
+node_modules/

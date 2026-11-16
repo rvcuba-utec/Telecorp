@@ -1,0 +1,766 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  PulsoRed - modulo AWS (infraestructura y automatizacion). Todo serverless: sin VPC, NAT ni EC2.
+  Todas las funciones, maquinas de estado y reglas usan el rol LabRole de AWS Academy (no se crean roles IAM).
+
+Parameters:
+  OpsEmail:
+    Type: String
+    Default: ""
+    Description: Correo de operadores para SNS (vacio = sin suscripcion). AWS envia un correo que hay que confirmar.
+  DeployMock:
+    Type: String
+    Default: "true"
+    AllowedValues: ["true", "false"]
+    Description: Despliega un receptor simulado de Azure y GCP (mock-receiver) para probar sin las otras nubes.
+  SecretsName:
+    Type: String
+    Default: pulsored/secrets
+  ConfigPrefix:
+    Type: String
+    Default: /pulsored/config
+  EndpointPrefix:
+    Type: String
+    Default: /pulsored/endpoints
+  ThrottleRate:
+    Type: Number
+    Default: 100
+  ThrottleBurst:
+    Type: Number
+    Default: 200
+
+Conditions:
+  HasOpsEmail: !Not [!Equals [!Ref OpsEmail, ""]]
+  UseMock: !Equals [!Ref DeployMock, "true"]
+
+Globals:
+  Function:
+    Runtime: python3.12
+    Architectures: [arm64]
+    Handler: app.handler
+    Timeout: 30
+    MemorySize: 256
+    Layers: [!Ref CommonLayer]
+    Environment:
+      Variables:
+        TABLE_ZONES: !Ref ZonesTable
+        TABLE_ANTENNAS: !Ref AntennasTable
+        TABLE_TELEMETRY: !Ref TelemetryTable
+        TABLE_ANTENNAEVENTS: !Ref AntennaEventsTable
+        TABLE_PREDICTIONS: !Ref PredictionsTable
+        TABLE_REJECTS: !Ref RejectsTable
+        TABLE_CONTROL: !Ref ControlTable
+        TABLE_MOCKINBOX: !If [UseMock, !Ref MockInboxTable, ""]
+        SECRETS_NAME: !Ref SecretsName
+        CONFIG_PREFIX: !Ref ConfigPrefix
+        ENDPOINT_PREFIX: !Ref EndpointPrefix
+        OUTBOX_AZURE_URL: !Ref OutboxAzureQueue
+        OUTBOX_GCP_EVENTS_URL: !Ref OutboxGcpEventsQueue
+        OUTBOX_GCP_TELEMETRY_URL: !Ref OutboxGcpTelemetryQueue
+        TELEMETRY_QUEUE_URL: !Ref OutboxGcpTelemetryQueue
+        DLQ_AZURE_URL: !Ref OutboxAzureDlq
+        DLQ_GCP_EVENTS_URL: !Ref OutboxGcpEventsDlq
+        DLQ_GCP_TELEMETRY_URL: !Ref OutboxGcpTelemetryDlq
+
+Resources:
+  # ---------------------------------------------------------------- capa comun
+  CommonLayer:
+    Type: AWS::Serverless::LayerVersion
+    Properties:
+      Description: Codigo comun del modulo AWS (config, secretos, ingesta, eventos)
+      ContentUri: src/common/
+      CompatibleRuntimes: [python3.12]
+      CompatibleArchitectures: [arm64]
+      RetentionPolicy: Delete
+
+  # ---------------------------------------------------------------- DynamoDB (on-demand)
+  ZonesTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions: [{AttributeName: zone_id, AttributeType: S}]
+      KeySchema: [{AttributeName: zone_id, KeyType: HASH}]
+  AntennasTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - {AttributeName: antenna_id, AttributeType: S}
+        - {AttributeName: zone_id, AttributeType: S}
+      KeySchema: [{AttributeName: antenna_id, KeyType: HASH}]
+      GlobalSecondaryIndexes:
+        - IndexName: zone-index
+          KeySchema: [{AttributeName: zone_id, KeyType: HASH}]
+          Projection: {ProjectionType: ALL}
+  TelemetryTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - {AttributeName: antenna_id, AttributeType: S}
+        - {AttributeName: ts, AttributeType: S}
+      KeySchema: [{AttributeName: antenna_id, KeyType: HASH}, {AttributeName: ts, KeyType: RANGE}]
+      TimeToLiveSpecification: {AttributeName: expire_at, Enabled: true}
+  AntennaEventsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - {AttributeName: antenna_id, AttributeType: S}
+        - {AttributeName: sk, AttributeType: S}
+      KeySchema: [{AttributeName: antenna_id, KeyType: HASH}, {AttributeName: sk, KeyType: RANGE}]
+      StreamSpecification: {StreamViewType: NEW_IMAGE}
+  PredictionsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - {AttributeName: antenna_id, AttributeType: S}
+        - {AttributeName: zone_id, AttributeType: S}
+      KeySchema: [{AttributeName: antenna_id, KeyType: HASH}]
+      GlobalSecondaryIndexes:
+        - IndexName: zone-index
+          KeySchema: [{AttributeName: zone_id, KeyType: HASH}]
+          Projection: {ProjectionType: ALL}
+      TimeToLiveSpecification: {AttributeName: expire_at, Enabled: true}
+  RejectsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - {AttributeName: day, AttributeType: S}
+        - {AttributeName: sk, AttributeType: S}
+      KeySchema: [{AttributeName: day, KeyType: HASH}, {AttributeName: sk, KeyType: RANGE}]
+      TimeToLiveSpecification: {AttributeName: expire_at, Enabled: true}
+  ControlTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions: [{AttributeName: key, AttributeType: S}]
+      KeySchema: [{AttributeName: key, KeyType: HASH}]
+  MockInboxTable:
+    Type: AWS::DynamoDB::Table
+    Condition: UseMock
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions: [{AttributeName: pk, AttributeType: S}]
+      KeySchema: [{AttributeName: pk, KeyType: HASH}]
+      TimeToLiveSpecification: {AttributeName: expire_at, Enabled: true}
+
+  # ---------------------------------------------------------------- SQS: una cola por destino, cada una con su DLQ
+  OutboxAzureDlq:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub ${AWS::StackName}-outbox-azure-dlq
+      MessageRetentionPeriod: 1209600
+  OutboxAzureQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub ${AWS::StackName}-outbox-azure
+      VisibilityTimeout: 360
+      MessageRetentionPeriod: 1209600
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt OutboxAzureDlq.Arn
+        maxReceiveCount: 5
+  OutboxGcpEventsDlq:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub ${AWS::StackName}-outbox-gcp-events-dlq
+      MessageRetentionPeriod: 1209600
+  OutboxGcpEventsQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub ${AWS::StackName}-outbox-gcp-events
+      VisibilityTimeout: 360
+      MessageRetentionPeriod: 1209600
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt OutboxGcpEventsDlq.Arn
+        maxReceiveCount: 5
+  OutboxGcpTelemetryDlq:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub ${AWS::StackName}-outbox-gcp-telemetry-dlq
+      MessageRetentionPeriod: 1209600
+  OutboxGcpTelemetryQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub ${AWS::StackName}-outbox-gcp-telemetry
+      VisibilityTimeout: 360
+      MessageRetentionPeriod: 1209600
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt OutboxGcpTelemetryDlq.Arn
+        maxReceiveCount: 5
+
+  # ---------------------------------------------------------------- SNS para operadores
+  OpsTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub ${AWS::StackName}-ops
+  OpsSubscription:
+    Type: AWS::SNS::Subscription
+    Condition: HasOpsEmail
+    Properties:
+      TopicArn: !Ref OpsTopic
+      Protocol: email
+      Endpoint: !Ref OpsEmail
+
+  # ---------------------------------------------------------------- API Gateway (HTTP API + authorizer por X-API-Key)
+  HttpApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      Description: API del modulo AWS de PulsoRed
+      DefaultRouteSettings:
+        ThrottlingRateLimit: !Ref ThrottleRate
+        ThrottlingBurstLimit: !Ref ThrottleBurst
+      Auth:
+        DefaultAuthorizer: KeyAuth
+        Authorizers:
+          KeyAuth:
+            FunctionArn: !GetAtt AuthorizerFunction.Arn
+            AuthorizerPayloadFormatVersion: "2.0"
+            EnableSimpleResponses: true
+            Identity:
+              Headers: [X-API-Key]
+              ReauthorizeEvery: 300
+
+  # ---------------------------------------------------------------- Lambdas
+  HealthFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/functions/health/
+      Role: !Sub arn:aws:iam::${AWS::AccountId}:role/LabRole
+      Events:
+        Get: {Type: HttpApi, Properties: {ApiId: !Ref HttpApi, Path: /health, Method: GET, Auth: {Authorizer: NONE}}}
+  AuthorizerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/functions/authorizer/
+      Role: !Sub arn:aws:iam::${AWS::AccountId}:role/LabRole
+      Timeout: 10
+  AuthorizerInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !GetAtt AuthorizerFunction.Arn
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${HttpApi}/authorizers/*
+  TelemetryIngestFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/functions/telemetry-ingest/
+      Role: !Sub arn:aws:iam::${AWS::AccountId}:role/LabRole
+      MemorySize: 512
+      Events:
+        Post: {Type: HttpApi, Properties: {ApiId: !Ref HttpApi, Path: /telemetry, Method: POST}}
+  AntennasApiFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/functions/antennas-api/
+      Role: !Sub arn:aws:iam::${AWS::AccountId}:role/LabRole
+      Events:
+        List: {Type: HttpApi, Properties: {ApiId: !Ref HttpApi, Path: /antennas, Method: GET}}
+        Detail: {Type: HttpApi, Properties: {ApiId: !Ref HttpApi, Path: "/antennas/{antenna_id}", Method: GET}}
+        Metrics: {Type: HttpApi, Properties: {ApiId: !Ref HttpApi, Path: "/antennas/{antenna_id}/metrics", Method: GET}}
+  PredictionsIngestFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/functions/predictions-ingest/
+      Role: !Sub arn:aws:iam::${AWS::AccountId}:role/LabRole
+      Environment:
+        Variables:
+          SF_PREVENTIVE_ARN: !Ref PreventiveAlertMachine
+      Events:
+        Post: {Type: HttpApi, Properties: {ApiId: !Ref HttpApi, Path: /predictions, Method: POST}}
+  PredictionsApiFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/functions/predictions-api/
+      Role: !Sub arn:aws:iam::${AWS::AccountId}:role/LabRole
+      Events:
+        Get: {Type: HttpApi, Properties: {ApiId: !Ref HttpApi, Path: /predictions, Method: GET}}
+  ConfigApiFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/functions/config-api/
+      Role: !Sub arn:aws:iam::${AWS::AccountId}:role/LabRole
+      Events:
+        Get: {Type: HttpApi, Properties: {ApiId: !Ref HttpApi, Path: /config, Method: GET}}
+  SimulatorFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/functions/simulator/
+      Role: !Sub arn:aws:iam::${AWS::AccountId}:role/LabRole
+      Timeout: 60
+      MemorySize: 512
+      Events:
+        EveryMinute: {Type: Schedule, Properties: {Schedule: rate(1 minute), Enabled: true}}
+  SimulatorControlFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/functions/simulator-control/
+      Role: !Sub arn:aws:iam::${AWS::AccountId}:role/LabRole
+      Events:
+        Status: {Type: HttpApi, Properties: {ApiId: !Ref HttpApi, Path: /simulator/status, Method: GET}}
+        Start: {Type: HttpApi, Properties: {ApiId: !Ref HttpApi, Path: /simulator/start, Method: POST}}
+        Stop: {Type: HttpApi, Properties: {ApiId: !Ref HttpApi, Path: /simulator/stop, Method: POST}}
+        Scenario: {Type: HttpApi, Properties: {ApiId: !Ref HttpApi, Path: /simulator/scenario, Method: POST}}
+  EventRouterFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/functions/event-router/
+      Role: !Sub arn:aws:iam::${AWS::AccountId}:role/LabRole
+      Environment:
+        Variables:
+          SF_LIFECYCLE_ARN: !Ref IncidentLifecycleMachine
+      Events:
+        Stream:
+          Type: DynamoDB
+          Properties:
+            Stream: !GetAtt AntennaEventsTable.StreamArn
+            StartingPosition: LATEST
+            BatchSize: 25
+            MaximumBatchingWindowInSeconds: 1
+            MaximumRetryAttempts: 5
+            BisectBatchOnFunctionError: true
+            FunctionResponseTypes: [ReportBatchItemFailures]
+            FilterCriteria:
+              Filters:
+                - Pattern: '{"eventName": ["INSERT"]}'
+  EmitEventFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/functions/emit-event/
+      Role: !Sub arn:aws:iam::${AWS::AccountId}:role/LabRole
+  EnrichContextFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/functions/enrich-context/
+      Role: !Sub arn:aws:iam::${AWS::AccountId}:role/LabRole
+  CheckRecoveryFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/functions/check-recovery/
+      Role: !Sub arn:aws:iam::${AWS::AccountId}:role/LabRole
+  CheckPreventiveFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/functions/check-preventive/
+      Role: !Sub arn:aws:iam::${AWS::AccountId}:role/LabRole
+  ListAntennasFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/functions/list-antennas/
+      Role: !Sub arn:aws:iam::${AWS::AccountId}:role/LabRole
+  CountEpisodesFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/functions/count-episodes/
+      Role: !Sub arn:aws:iam::${AWS::AccountId}:role/LabRole
+  DlqRedriveFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/functions/dlq-redrive/
+      Role: !Sub arn:aws:iam::${AWS::AccountId}:role/LabRole
+      Timeout: 120
+  OutboxSenderFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/functions/outbox-sender/
+      Role: !Sub arn:aws:iam::${AWS::AccountId}:role/LabRole
+      Timeout: 120
+      Events:
+        Azure:
+          Type: SQS
+          Properties:
+            Queue: !GetAtt OutboxAzureQueue.Arn
+            BatchSize: 10
+            FunctionResponseTypes: [ReportBatchItemFailures]
+            ScalingConfig: {MaximumConcurrency: 2}
+        GcpEvents:
+          Type: SQS
+          Properties:
+            Queue: !GetAtt OutboxGcpEventsQueue.Arn
+            BatchSize: 10
+            FunctionResponseTypes: [ReportBatchItemFailures]
+            ScalingConfig: {MaximumConcurrency: 2}
+        GcpTelemetry:
+          Type: SQS
+          Properties:
+            Queue: !GetAtt OutboxGcpTelemetryQueue.Arn
+            BatchSize: 100
+            MaximumBatchingWindowInSeconds: 300
+            FunctionResponseTypes: [ReportBatchItemFailures]
+            ScalingConfig: {MaximumConcurrency: 2}
+  SfStarterFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/functions/sf-starter/
+      Role: !Sub arn:aws:iam::${AWS::AccountId}:role/LabRole
+      Timeout: 15
+      Environment:
+        Variables:
+          SF_RECURRENCE_ARN: !Ref RecurrenceAnalysisMachine
+          SF_REDELIVERY_ARN: !Ref EventRedeliveryMachine
+      Events:
+        DailyRecurrence:
+          Type: Schedule
+          Properties:
+            Description: recurrence-analysis diario, 02:00 hora de Lima (07:00 UTC)
+            Schedule: cron(0 7 * * ? *)
+            Input: '{"machine": "recurrence", "input": {}}'
+        HourlyRedelivery:
+          Type: Schedule
+          Properties:
+            Description: respaldo horario de event-redelivery
+            Schedule: rate(1 hour)
+            Input: '{"machine": "redelivery", "input": {"trigger": "schedule"}}'
+        DlqAlarm:
+          Type: CloudWatchEvent
+          Properties:
+            Pattern:
+              source: [aws.cloudwatch]
+              detail-type: [CloudWatch Alarm State Change]
+              detail:
+                alarmName:
+                  - prefix: !Sub ${AWS::StackName}-dlq-
+                state: {value: [ALARM]}
+            Input: '{"machine": "redelivery", "input": {"trigger": "dlq-alarm"}}'
+  MockReceiverFunction:
+    Type: AWS::Serverless::Function
+    Condition: UseMock
+    Properties:
+      CodeUri: src/functions/mock-receiver/
+      Role: !Sub arn:aws:iam::${AWS::AccountId}:role/LabRole
+      Events:
+        Any: {Type: HttpApi, Properties: {ApiId: !Ref HttpApi, Path: "/mock/{proxy+}", Method: ANY, Auth: {Authorizer: NONE}}}
+
+  # ---------------------------------------------------------------- Step Functions (Standard)
+  IncidentLifecycleMachine:
+    Type: AWS::Serverless::StateMachine
+    Properties:
+      Type: STANDARD
+      DefinitionUri: statemachines/antenna-incident-lifecycle.asl.json
+      Role: !Sub arn:aws:iam::${AWS::AccountId}:role/LabRole
+      DefinitionSubstitutions:
+        EnrichContextArn: !GetAtt EnrichContextFunction.Arn
+        EmitEventArn: !GetAtt EmitEventFunction.Arn
+        CheckRecoveryArn: !GetAtt CheckRecoveryFunction.Arn
+        AntennasTable: !Ref AntennasTable
+        OpsTopicArn: !Ref OpsTopic
+  PreventiveAlertMachine:
+    Type: AWS::Serverless::StateMachine
+    Properties:
+      Type: STANDARD
+      DefinitionUri: statemachines/preventive-alert.asl.json
+      Role: !Sub arn:aws:iam::${AWS::AccountId}:role/LabRole
+      DefinitionSubstitutions:
+        CheckPreventiveArn: !GetAtt CheckPreventiveFunction.Arn
+        EmitEventArn: !GetAtt EmitEventFunction.Arn
+        AntennasTable: !Ref AntennasTable
+        PredictionsTable: !Ref PredictionsTable
+        OpsTopicArn: !Ref OpsTopic
+  RecurrenceAnalysisMachine:
+    Type: AWS::Serverless::StateMachine
+    Properties:
+      Type: STANDARD
+      DefinitionUri: statemachines/recurrence-analysis.asl.json
+      Role: !Sub arn:aws:iam::${AWS::AccountId}:role/LabRole
+      DefinitionSubstitutions:
+        ListAntennasArn: !GetAtt ListAntennasFunction.Arn
+        CountEpisodesArn: !GetAtt CountEpisodesFunction.Arn
+        EmitEventArn: !GetAtt EmitEventFunction.Arn
+        AntennasTable: !Ref AntennasTable
+        OpsTopicArn: !Ref OpsTopic
+  EventRedeliveryMachine:
+    Type: AWS::Serverless::StateMachine
+    Properties:
+      Type: STANDARD
+      DefinitionUri: statemachines/event-redelivery.asl.json
+      Role: !Sub arn:aws:iam::${AWS::AccountId}:role/LabRole
+      DefinitionSubstitutions:
+        DlqRedriveArn: !GetAtt DlqRedriveFunction.Arn
+        OpsTopicArn: !Ref OpsTopic
+        AzureUrl: !Ref OutboxAzureQueue
+        AzureArn: !GetAtt OutboxAzureQueue.Arn
+        AzureDlqUrl: !Ref OutboxAzureDlq
+        AzureDlqArn: !GetAtt OutboxAzureDlq.Arn
+        GcpEventsUrl: !Ref OutboxGcpEventsQueue
+        GcpEventsArn: !GetAtt OutboxGcpEventsQueue.Arn
+        GcpEventsDlqUrl: !Ref OutboxGcpEventsDlq
+        GcpEventsDlqArn: !GetAtt OutboxGcpEventsDlq.Arn
+        GcpTelemetryUrl: !Ref OutboxGcpTelemetryQueue
+        GcpTelemetryArn: !GetAtt OutboxGcpTelemetryQueue.Arn
+        GcpTelemetryDlqUrl: !Ref OutboxGcpTelemetryDlq
+        GcpTelemetryDlqArn: !GetAtt OutboxGcpTelemetryDlq.Arn
+
+  # ---------------------------------------------------------------- Alarmas -> SNS
+  TelemetryIngestErrorsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub ${AWS::StackName}-errors-telemetry-ingest
+      AlarmDescription: "Errores de Lambda en telemetry-ingest"
+      Namespace: AWS/Lambda
+      MetricName: "Errors"
+      Dimensions:
+        - {Name: FunctionName, Value: !Ref TelemetryIngestFunction}
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref OpsTopic]
+  EmitEventErrorsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub ${AWS::StackName}-errors-emit-event
+      AlarmDescription: "Errores de Lambda en emit-event"
+      Namespace: AWS/Lambda
+      MetricName: "Errors"
+      Dimensions:
+        - {Name: FunctionName, Value: !Ref EmitEventFunction}
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref OpsTopic]
+  OutboxSenderErrorsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub ${AWS::StackName}-errors-outbox-sender
+      AlarmDescription: "Errores de Lambda en outbox-sender"
+      Namespace: AWS/Lambda
+      MetricName: "Errors"
+      Dimensions:
+        - {Name: FunctionName, Value: !Ref OutboxSenderFunction}
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref OpsTopic]
+  OutboxAzureDlqAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub ${AWS::StackName}-dlq-azure
+      AlarmDescription: "Hay mensajes en la DLQ azure: se dispara event-redelivery"
+      Namespace: AWS/SQS
+      MetricName: "ApproximateNumberOfMessagesVisible"
+      Dimensions:
+        - {Name: QueueName, Value: !GetAtt OutboxAzureDlq.QueueName}
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 1
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref OpsTopic]
+  OutboxAzureAgeAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub ${AWS::StackName}-age-azure
+      AlarmDescription: "El mensaje mas viejo de outbox-azure supera 10 minutos"
+      Namespace: AWS/SQS
+      MetricName: "ApproximateAgeOfOldestMessage"
+      Dimensions:
+        - {Name: QueueName, Value: !GetAtt OutboxAzureQueue.QueueName}
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 1
+      Threshold: 600
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref OpsTopic]
+  OutboxGcpEventsDlqAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub ${AWS::StackName}-dlq-gcp-events
+      AlarmDescription: "Hay mensajes en la DLQ gcp-events: se dispara event-redelivery"
+      Namespace: AWS/SQS
+      MetricName: "ApproximateNumberOfMessagesVisible"
+      Dimensions:
+        - {Name: QueueName, Value: !GetAtt OutboxGcpEventsDlq.QueueName}
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 1
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref OpsTopic]
+  OutboxGcpEventsAgeAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub ${AWS::StackName}-age-gcp-events
+      AlarmDescription: "El mensaje mas viejo de outbox-gcp-events supera 10 minutos"
+      Namespace: AWS/SQS
+      MetricName: "ApproximateAgeOfOldestMessage"
+      Dimensions:
+        - {Name: QueueName, Value: !GetAtt OutboxGcpEventsQueue.QueueName}
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 1
+      Threshold: 600
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref OpsTopic]
+  OutboxGcpTelemetryDlqAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub ${AWS::StackName}-dlq-gcp-telemetry
+      AlarmDescription: "Hay mensajes en la DLQ gcp-telemetry: se dispara event-redelivery"
+      Namespace: AWS/SQS
+      MetricName: "ApproximateNumberOfMessagesVisible"
+      Dimensions:
+        - {Name: QueueName, Value: !GetAtt OutboxGcpTelemetryDlq.QueueName}
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 1
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref OpsTopic]
+  OutboxGcpTelemetryAgeAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub ${AWS::StackName}-age-gcp-telemetry
+      AlarmDescription: "El mensaje mas viejo de outbox-gcp-telemetry supera 10 minutos"
+      Namespace: AWS/SQS
+      MetricName: "ApproximateAgeOfOldestMessage"
+      Dimensions:
+        - {Name: QueueName, Value: !GetAtt OutboxGcpTelemetryQueue.QueueName}
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 1
+      Threshold: 600
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref OpsTopic]
+  IncidentLifecycleFailedAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub ${AWS::StackName}-sf-failed-antenna-incident-lifecycle
+      AlarmDescription: "Ejecuciones fallidas de antenna-incident-lifecycle"
+      Namespace: AWS/States
+      MetricName: "ExecutionsFailed"
+      Dimensions:
+        - {Name: StateMachineArn, Value: !Ref IncidentLifecycleMachine}
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref OpsTopic]
+  PreventiveAlertFailedAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub ${AWS::StackName}-sf-failed-preventive-alert
+      AlarmDescription: "Ejecuciones fallidas de preventive-alert"
+      Namespace: AWS/States
+      MetricName: "ExecutionsFailed"
+      Dimensions:
+        - {Name: StateMachineArn, Value: !Ref PreventiveAlertMachine}
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref OpsTopic]
+  RecurrenceAnalysisFailedAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub ${AWS::StackName}-sf-failed-recurrence-analysis
+      AlarmDescription: "Ejecuciones fallidas de recurrence-analysis"
+      Namespace: AWS/States
+      MetricName: "ExecutionsFailed"
+      Dimensions:
+        - {Name: StateMachineArn, Value: !Ref RecurrenceAnalysisMachine}
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref OpsTopic]
+  EventRedeliveryFailedAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub ${AWS::StackName}-sf-failed-event-redelivery
+      AlarmDescription: "Ejecuciones fallidas de event-redelivery"
+      Namespace: AWS/States
+      MetricName: "ExecutionsFailed"
+      Dimensions:
+        - {Name: StateMachineArn, Value: !Ref EventRedeliveryMachine}
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref OpsTopic]
+  Api5xxAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub ${AWS::StackName}-api-5xx
+      AlarmDescription: "5 o mas errores 5xx de API Gateway en 5 minutos"
+      Namespace: AWS/ApiGateway
+      MetricName: "5xx"
+      Dimensions:
+        - {Name: ApiId, Value: !Ref HttpApi}
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 5
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref OpsTopic]
+
+  Dashboard:
+    Type: AWS::CloudWatch::Dashboard
+    Properties:
+      DashboardName: !Sub ${AWS::StackName}
+      DashboardBody: !Sub
+        - '{"widgets":[{"type":"metric","x":0,"y":0,"width":12,"height":6,"properties":{"title":"Muestras por minuto","region":"${AWS::Region}","stat":"Sum","period":60,"view":"timeSeries","metrics":[["PulsoRed","SamplesAccepted","Origin","simulator"],["PulsoRed","SamplesAccepted","Origin","api"],["PulsoRed","SamplesRejected","Origin","api"]]}},{"type":"metric","x":12,"y":0,"width":12,"height":6,"properties":{"title":"Antenas por estado","region":"${AWS::Region}","stat":"Maximum","period":60,"view":"timeSeries","metrics":[["PulsoRed","AntennasByState","State","NORMAL"],["PulsoRed","AntennasByState","State","CAIDA"],["PulsoRed","AntennasByState","State","INHABILITADA"],["PulsoRed","AntennasByState","State","SATURADA"]]}},{"type":"metric","x":0,"y":6,"width":12,"height":6,"properties":{"title":"Eventos emitidos a Azure y GCP","region":"${AWS::Region}","stat":"Sum","period":60,"view":"timeSeries","metrics":[["PulsoRed","EventsPublished","EventType","FALLA"],["PulsoRed","EventsPublished","EventType","SATURACION"],["PulsoRed","EventsPublished","EventType","DEGRADACION"],["PulsoRed","EventsPublished","EventType","RECUPERACION"],["PulsoRed","EventsPublished","EventType","PREVENTIVA"],["PulsoRed","EventsPublished","EventType","ESTRUCTURAL"],["PulsoRed","EventsPublished","EventType","PROLONGADA"]]}},{"type":"metric","x":12,"y":6,"width":12,"height":6,"properties":{"title":"Profundidad de colas y DLQ","region":"${AWS::Region}","stat":"Maximum","period":60,"view":"timeSeries","metrics":[["AWS/SQS","ApproximateNumberOfMessagesVisible","QueueName","${QAzure}"],["AWS/SQS","ApproximateNumberOfMessagesVisible","QueueName","${QGcpEvents}"],["AWS/SQS","ApproximateNumberOfMessagesVisible","QueueName","${QGcpTelemetry}"],["AWS/SQS","ApproximateNumberOfMessagesVisible","QueueName","${DAzure}"],["AWS/SQS","ApproximateNumberOfMessagesVisible","QueueName","${DGcpEvents}"],["AWS/SQS","ApproximateNumberOfMessagesVisible","QueueName","${DGcpTelemetry}"]]}},{"type":"metric","x":0,"y":12,"width":12,"height":6,"properties":{"title":"Ejecuciones de Step Functions","region":"${AWS::Region}","stat":"Sum","period":300,"view":"timeSeries","metrics":[["AWS/States","ExecutionsStarted","StateMachineArn","${SfLife}"],["AWS/States","ExecutionsFailed","StateMachineArn","${SfLife}"],["AWS/States","ExecutionsStarted","StateMachineArn","${SfPrev}"],["AWS/States","ExecutionsFailed","StateMachineArn","${SfPrev}"],["AWS/States","ExecutionsStarted","StateMachineArn","${SfRec}"],["AWS/States","ExecutionsFailed","StateMachineArn","${SfRec}"],["AWS/States","ExecutionsStarted","StateMachineArn","${SfRed}"],["AWS/States","ExecutionsFailed","StateMachineArn","${SfRed}"]]}},{"type":"metric","x":12,"y":12,"width":12,"height":6,"properties":{"title":"Errores de Lambda","region":"${AWS::Region}","stat":"Sum","period":60,"view":"timeSeries","metrics":[["AWS/Lambda","Errors","FunctionName","${FIngest}"],["AWS/Lambda","Errors","FunctionName","${FEmit}"],["AWS/Lambda","Errors","FunctionName","${FSender}"],["AWS/Lambda","Errors","FunctionName","${FRouter}"],["AWS/Lambda","Errors","FunctionName","${FSim}"]]}}]}'
+        - QAzure: !GetAtt OutboxAzureQueue.QueueName
+          QGcpEvents: !GetAtt OutboxGcpEventsQueue.QueueName
+          QGcpTelemetry: !GetAtt OutboxGcpTelemetryQueue.QueueName
+          DAzure: !GetAtt OutboxAzureDlq.QueueName
+          DGcpEvents: !GetAtt OutboxGcpEventsDlq.QueueName
+          DGcpTelemetry: !GetAtt OutboxGcpTelemetryDlq.QueueName
+          SfLife: !Ref IncidentLifecycleMachine
+          SfPrev: !Ref PreventiveAlertMachine
+          SfRec: !Ref RecurrenceAnalysisMachine
+          SfRed: !Ref EventRedeliveryMachine
+          FIngest: !Ref TelemetryIngestFunction
+          FEmit: !Ref EmitEventFunction
+          FSender: !Ref OutboxSenderFunction
+          FRouter: !Ref EventRouterFunction
+          FSim: !Ref SimulatorFunction
+
+Outputs:
+  ApiUrl: {Value: !Sub "https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com"}
+  ZonesTable: {Value: !Ref ZonesTable}
+  AntennasTable: {Value: !Ref AntennasTable}
+  TelemetryTable: {Value: !Ref TelemetryTable}
+  AntennaEventsTable: {Value: !Ref AntennaEventsTable}
+  PredictionsTable: {Value: !Ref PredictionsTable}
+  RejectsTable: {Value: !Ref RejectsTable}
+  ControlTable: {Value: !Ref ControlTable}
+  MockInboxTable: {Condition: UseMock, Value: !Ref MockInboxTable}
+  OutboxAzureUrl: {Value: !Ref OutboxAzureQueue}
+  OutboxGcpEventsUrl: {Value: !Ref OutboxGcpEventsQueue}
+  OutboxGcpTelemetryUrl: {Value: !Ref OutboxGcpTelemetryQueue}
+  OutboxAzureDlqUrl: {Value: !Ref OutboxAzureDlq}
+  OutboxGcpEventsDlqUrl: {Value: !Ref OutboxGcpEventsDlq}
+  OutboxGcpTelemetryDlqUrl: {Value: !Ref OutboxGcpTelemetryDlq}
+  IncidentLifecycleArn: {Value: !Ref IncidentLifecycleMachine}
+  PreventiveAlertArn: {Value: !Ref PreventiveAlertMachine}
+  RecurrenceAnalysisArn: {Value: !Ref RecurrenceAnalysisMachine}
+  EventRedeliveryArn: {Value: !Ref EventRedeliveryMachine}
+  OpsTopicArn: {Value: !Ref OpsTopic}
+  MockEnabled: {Value: !Ref DeployMock}

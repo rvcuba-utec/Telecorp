@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "antenna-event.schema.json",
+  "title": "payload de type=antenna.event (AWS -> Azure y AWS -> GCP). PROPUESTA: el formato para Azure debe aceptarlo quien lo implemente",
+  "type": "object",
+  "required": ["antenna_id", "zone_id", "episode_id", "event_type", "severity", "new_state", "detected_at"],
+  "additionalProperties": false,
+  "properties": {
+    "antenna_id": { "type": "string", "pattern": "^ANT-LIM-\\d{3}$" },
+    "zone_id": { "type": "string" },
+    "episode_id": { "type": "string", "description": "Agrupa todos los eventos de un mismo episodio de falla" },
+    "event_type": { "enum": ["FALLA", "SATURACION", "DEGRADACION", "RECUPERACION", "PREVENTIVA", "ESTRUCTURAL", "PROLONGADA"] },
+    "severity": { "enum": ["INFO", "BAJA", "MEDIA", "ALTA", "CRITICA"] },
+    "previous_state": { "enum": ["NORMAL", "CAIDA", "INHABILITADA", "SATURADA"] },
+    "new_state": { "enum": ["NORMAL", "CAIDA", "INHABILITADA", "SATURADA"] },
+    "gb_per_min": { "type": "number", "minimum": 0 },
+    "first_anomaly_at": { "type": "string", "format": "date-time", "description": "Primera muestra anomala del episodio (base del tiempo de deteccion)" },
+    "detected_at": { "type": "string", "format": "date-time", "description": "Momento en que AWS confirmo el evento" },
+    "prediction": {
+      "type": "object",
+      "description": "Solo en PREVENTIVA",
+      "required": ["probability", "predicted_state", "horizon_minutes", "valid_until", "model_version"],
+      "properties": {
+        "probability": { "type": "number", "minimum": 0, "maximum": 1 },
+        "predicted_state": { "enum": ["CAIDA", "INHABILITADA", "SATURADA"] },
+        "horizon_minutes": { "type": "integer", "minimum": 1 },
+        "valid_until": { "type": "string", "format": "date-time" },
+        "model_version": { "type": "string" }
+      }
+    },
+    "recurrence": {
+      "type": "object",
+      "description": "Solo en ESTRUCTURAL",
+      "properties": { "episodes_7d": { "type": "integer" }, "episodes_30d": { "type": "integer" } }
+    },
+    "elapsed_minutes": { "type": "integer", "description": "Solo en PROLONGADA" }
+  }
+}

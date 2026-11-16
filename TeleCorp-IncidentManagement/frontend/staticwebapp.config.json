@@ -1,0 +1,11 @@
+{
+  "navigationFallback": { "rewrite": "/index.html", "exclude": ["/assets/*", "/*.json", "/*.css", "/*.js"] },
+  "routes": [
+    { "route": "/consola", "rewrite": "/consola.html" }
+  ],
+  "globalHeaders": {
+    "Content-Security-Policy": "default-src 'self'; connect-src 'self' https://*.azurewebsites.net http://localhost:7071; style-src 'self' 'unsafe-inline'; img-src 'self' data:; frame-ancestors 'none'",
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "no-referrer"
+  }
+}

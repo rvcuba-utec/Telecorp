@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>PulsoRed · Consola de operación</title>
+  <link rel="stylesheet" href="/assets/app.css">
+</head>
+<body>
+<header><h1>📡 PulsoRed · Consola</h1><nav><a href="/">Portal de usuario</a></nav></header>
+<main>
+  <section class="card" id="login">
+    <h2>Acceso de operador</h2>
+    <div class="row"><input id="token" type="password" placeholder="Token de operador"><div><button id="enter">Entrar</button></div></div>
+    <div id="loginmsg"></div>
+  </section>
+
+  <div id="app" hidden>
+    <section class="card">
+      <div class="row">
+        <div><label for="fzone">Zona</label><select id="fzone"><option value="">Todas</option></select></div>
+        <div><label for="ftype">Tipo</label><select id="ftype"><option value="">Todos</option>
+          <option>COLECTIVA</option><option>PREVENTIVA</option><option>ESTRUCTURAL</option></select></div>
+        <div><label for="fprio">Prioridad</label><select id="fprio"><option value="">Todas</option>
+          <option>CRITICA</option><option>ALTA</option><option>MEDIA</option><option>BAJA</option></select></div>
+        <div><label for="fclosed">Mostrar</label><select id="fclosed"><option value="0">Solo abiertas</option><option value="1">Incluir cerradas</option></select></div>
+        <div style="align-self:end"><button id="refresh" class="sec">Actualizar</button> <span class="mut" id="upd"></span></div>
+      </div>
+      <p class="mut" id="integrations"></p>
+    </section>
+    <div class="grid2">
+      <section class="card"><h2>Incidencias (por prioridad)</h2><div id="list"></div></section>
+      <section class="card"><h2>Detalle</h2><div id="detail" class="mut">Selecciona una incidencia.</div></section>
+    </div>
+    <div class="grid2">
+      <section class="card"><h2>Estado de antenas <span class="mut" id="antsrc"></span></h2><div id="antennas"></div></section>
+      <section class="card"><h2>Riesgos predictivos vigentes <span class="mut" id="predsrc"></span></h2><div id="predictions"></div></section>
+    </div>
+    <section class="card"><h2>Eventos de infraestructura recientes (AWS)</h2><div id="infra"></div></section>
+  </div>
+</main>
+<script type="module" src="/assets/consola.js"></script>
+</body>
+</html>
