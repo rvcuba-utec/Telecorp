@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TeleCorp Data Analytics</title>
+<link rel="preconnect" href="https://api.fontshare.com">
+<link rel="stylesheet" href="https://api.fontshare.com/v2/css?f[]=clash-display@500,600,700&f[]=satoshi@400,500,700&display=swap">
+<style>
+/* === THEME (cambia colores aquí) === */
+:root {
+  --bg: #060d18;
+  --bg-2: #0d1a2c;
+  --line: rgba(255,255,255,.10);
+  --text: #f2f6fb;
+  --muted: #8fa3bb;
+  --ok: #3df0b0;      /* normal / acento principal */
+  --warn: #ffb547;    /* saturada */
+  --bad: #ff5d6c;     /* caída */
+  --info: #5db8ff;
+  --font-display: 'Clash Display', sans-serif;
+  --font-body: 'Satoshi', sans-serif;
+  --ease: cubic-bezier(.16,1,.3,1);
+  --stage-bg: #000;
+  --slide-bg: var(--bg);
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+
+/* === FIXED 16:9 STAGE (viewport-base.css) === */
+html, body { width:100%; height:100%; margin:0; overflow:hidden; background:var(--stage-bg,#000); }
+.deck-viewport { position:fixed; inset:0; overflow:hidden; background:var(--stage-bg,#000); }
+.deck-stage { position:absolute; left:0; top:0; width:1920px; height:1080px; overflow:hidden; transform-origin:0 0; background:var(--slide-bg,#fff); }
+.slide { position:absolute; inset:0; width:1920px; height:1080px; overflow:hidden; display:block; visibility:hidden; opacity:0; pointer-events:none; background:var(--slide-bg,#fff); }
+.slide.active, .slide.visible { visibility:visible; opacity:1; pointer-events:auto; z-index:1; }
+img, video, canvas, svg { max-width:100%; max-height:100%; }
+.deck-controls { position:fixed; left:50%; bottom:22px; transform:translateX(-50%); z-index:1000; }
+@media print {
+  html, body { width:1920px; height:auto; overflow:visible; background:#fff; }
+  .deck-viewport { position:static; overflow:visible; background:#fff; }
+  .deck-stage { position:static; width:auto; height:auto; transform:none !important; background:none; }
+  .slide { position:relative; display:block !important; visibility:visible !important; opacity:1 !important; pointer-events:auto !important; width:1920px; height:1080px; break-after:page; page-break-after:always; }
+  .slide:last-child { break-after:auto; page-break-after:auto; }
+  .deck-controls { display:none !important; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration:.01ms !important; transition-duration:.2s !important; }
+}
+
+/* === BASE SLIDE === */
+.slide { font-family:var(--font-body); color:var(--text); padding:120px 160px; }
+.slide::before { /* malla sutil de fondo */
+  content:""; position:absolute; inset:0; pointer-events:none;
+  background:
+    radial-gradient(900px 600px at 85% 10%, rgba(61,240,176,.10), transparent 60%),
+    radial-gradient(800px 600px at 5% 100%, rgba(93,184,255,.08), transparent 60%),
+    linear-gradient(var(--line) 1px, transparent 1px) 0 0/120px 120px,
+    linear-gradient(90deg, var(--line) 1px, transparent 1px) 0 0/120px 120px;
+  opacity:.55;
+  mask-image: radial-gradient(ellipse at center, #000 30%, transparent 85%);
+}
+.slide > * { position:relative; }
+.kicker { font-family:var(--font-display); font-weight:600; font-size:26px; letter-spacing:.22em; text-transform:uppercase; color:var(--ok); margin-bottom:36px; }
+h1, h2 { font-family:var(--font-display); font-weight:700; line-height:1.02; letter-spacing:-.02em; }
+h1 { font-size:152px; }
+h2 { font-size:104px; max-width:1500px; }
+.lead { font-size:40px; line-height:1.4; color:var(--muted); max-width:1250px; margin-top:44px; }
+.accent { color:var(--ok); }
+.bad { color:var(--bad); } .warn { color:var(--warn); } .info { color:var(--info); }
+.pagenum { position:absolute !important; right:160px; bottom:64px; font-family:var(--font-display); font-size:24px; color:var(--muted); letter-spacing:.1em; }
+
+/* === REVEAL === */
+.reveal { opacity:0; transform:translateY(34px); transition:opacity .7s var(--ease), transform .7s var(--ease); }
+.slide.visible .reveal { opacity:1; transform:none; }
+.slide.visible .d1 { transition-delay:.10s; } .slide.visible .d2 { transition-delay:.25s; }
+.slide.visible .d3 { transition-delay:.40s; } .slide.visible .d4 { transition-delay:.55s; }
+.slide.visible .d5 { transition-delay:.70s; }
+
+/* === TITLE === */
+.title-slide { display:flex; flex-direction:column; justify-content:center; }
+.title-slide h1 span { display:block; }
+.pulse { position:absolute !important; right:200px; top:50%; width:460px; height:460px; margin-top:-230px; }
+.pulse i { position:absolute; inset:0; border-radius:50%; border:2px solid var(--ok); animation:ping 4s infinite var(--ease); opacity:0; }
+.pulse i:nth-child(2){ animation-delay:1.3s; } .pulse i:nth-child(3){ animation-delay:2.6s; }
+.pulse b { position:absolute; left:50%; top:50%; width:44px; height:44px; margin:-22px; border-radius:50%; background:var(--ok); }
+@keyframes ping { 0%{ transform:scale(.1); opacity:.9;} 100%{ transform:scale(1); opacity:0;} }
+
+/* === PROBLEM: rule === */
+.rule { display:flex; gap:28px; margin-top:80px; align-items:stretch; }
+.rule .cell { flex:1; background:var(--bg-2); border:1px solid var(--line); border-radius:28px; padding:48px 44px; }
+.rule .num { font-family:var(--font-display); font-weight:700; font-size:120px; line-height:1; color:var(--bad); }
+.rule .lbl { font-size:32px; color:var(--muted); margin-top:18px; line-height:1.3; }
+
+/* === FLOW (solución) === */
+.flow { display:flex; align-items:center; gap:24px; margin-top:90px; }
+.node { flex:1; background:var(--bg-2); border:1px solid var(--line); border-radius:28px; padding:44px 36px; text-align:center; }
+.node .t { font-family:var(--font-display); font-weight:700; font-size:44px; }
+.node .s { font-size:26px; color:var(--muted); margin-top:12px; line-height:1.35; }
+.node.core { border-color:var(--ok); box-shadow:0 0 0 1px var(--ok); background:linear-gradient(180deg,#0e2a2a,var(--bg-2)); }
+.node.core .t { color:var(--ok); }
+.arrow { font-size:54px; color:var(--muted); flex:none; }
+.tag { font-family:var(--font-display); font-size:22px; letter-spacing:.18em; text-transform:uppercase; margin-bottom:16px; display:block; }
+
+/* === THRESHOLD BAR === */
+.thresh { display:flex; height:140px; border-radius:24px; overflow:hidden; margin-top:90px; font-family:var(--font-display); font-weight:600; font-size:30px; }
+.thresh div { padding:20px 28px; text-align:center; display:flex; flex-direction:column; justify-content:center; align-items:center; color:#06101a; }
+.t0{ flex:1.15; background:#5b6b80; color:#fff !important; } .t1{ flex:1.5; background:var(--bad);} .t2{ flex:1.9; background:var(--ok);} .t3{ flex:1.5; background:var(--warn);}
+.thresh small { font-family:var(--font-body); font-weight:500; font-size:22px; opacity:.85; }
+.pipe { display:flex; gap:28px; margin-top:56px; }
+.pipe .step { flex:1; font-size:32px; line-height:1.35; color:var(--muted); border-top:3px solid var(--ok); padding-top:22px; }
+.pipe .step b { display:block; color:var(--text); font-family:var(--font-display); font-size:40px; margin-bottom:8px; }
+
+/* === GEMINI cards === */
+.cards { display:flex; gap:32px; margin-top:80px; }
+.card { flex:1; background:var(--bg-2); border:1px solid var(--line); border-radius:28px; padding:52px 48px; }
+.card .t { font-family:var(--font-display); font-weight:700; font-size:50px; margin-bottom:20px; }
+.card .s { font-size:32px; color:var(--muted); line-height:1.4; }
+.card .mono { margin-top:30px; font-family:ui-monospace, 'JetBrains Mono', monospace; font-size:24px; color:var(--ok); }
+.privacy { margin-top:48px; font-size:32px; color:var(--text); display:flex; align-items:center; gap:18px; }
+.privacy::before { content:""; width:16px; height:16px; border-radius:50%; background:var(--ok); }
+
+/* === CHIPS === */
+.chips { display:flex; flex-wrap:wrap; gap:22px; margin-top:80px; max-width:1500px; }
+.chip { font-family:var(--font-display); font-weight:600; font-size:42px; padding:28px 46px; border-radius:100px; border:1.5px solid var(--line); background:var(--bg-2); }
+.chip.hl { border-color:var(--ok); color:var(--ok); }
+
+
+/* === DIAGRAMAS DE ARQUITECTURA (SVG vectorial) === */
+.arch-slide h2 { font-size:76px; max-width:none; }
+.arch-slide .kicker { margin-bottom:24px; }
+.arch-frame { margin-top:40px; background:#fff; border-radius:28px; padding:28px; display:flex; align-items:center; justify-content:center; height:700px; border:1px solid var(--line); }
+.arch-frame img { width:100%; height:100%; object-fit:contain; display:block; }
+
+/* === CLOSING === */
+.close-slide { display:flex; flex-direction:column; justify-content:center; }
+.close-slide h2 { font-size:128px; max-width:1600px; }
+
+/* === NAV UI (fuera del stage visual) === */
+.progress { position:fixed; left:0; top:0; height:5px; width:0; background:var(--ok); z-index:2000; transition:width .4s var(--ease); }
+</style>
+</head>
+<body>
+<div class="progress" id="progress"></div>
+<div class="deck-viewport">
+<main class="deck-stage" id="deckStage">
+
+  <!-- 1. PORTADA (~15s) -->
+  <section class="slide title-slide active">
+    <div class="kicker reveal d1">Red TeleCorp · Módulo GCP</div>
+    <h1 class="reveal d2"><span>Detectar la falla</span><span class="accent">antes que el usuario.</span></h1>
+    <p class="lead reveal d3">Analítica, predicción e IA generativa sobre Google Cloud.</p>
+    <div class="pulse"><i></i><i></i><i></i><b></b></div>
+  </section>
+
+  <!-- 2. PROBLEMA (~30s) -->
+  <section class="slide">
+    <div class="kicker reveal d1">El problema</div>
+    <h2 class="reveal d2">Los usuarios se enteran primero.</h2>
+    <div class="rule">
+      <div class="cell reveal d3"><div class="num">10+</div><div class="lbl">usuarios distintos reportan</div></div>
+      <div class="cell reveal d4"><div class="num">1</div><div class="lbl">misma zona</div></div>
+      <div class="cell reveal d5"><div class="num">&lt;24h</div><div class="lbl">posible incidente colectivo</div></div>
+    </div>
+    <div class="pagenum"></div>
+  </section>
+
+  <!-- 3. SOLUCIÓN: flujo (~40s) -->
+  <section class="slide">
+    <div class="kicker reveal d1">La solución</div>
+    <h2 class="reveal d2">Una sola vista de la red y de los usuarios.</h2>
+    <div class="flow">
+      <div class="node reveal d3"><span class="tag" style="color:var(--warn)">AWS</span><div class="t">Antenas</div><div class="s">Tráfico y estado en tiempo real</div></div>
+      <div class="arrow reveal d3">→</div>
+      <div class="node core reveal d4"><span class="tag accent">GCP</span><div class="t">BigQuery</div><div class="s">Modelo unificado, validado y particionado</div></div>
+      <div class="arrow reveal d4">←</div>
+      <div class="node reveal d5"><span class="tag info">Azure</span><div class="t">Incidencias</div><div class="s">Reportes de los usuarios</div></div>
+    </div>
+    <div class="pagenum"></div>
+  </section>
+
+  <!-- ARQUITECTURA: AWS -->
+  <section class="slide arch-slide">
+    <div class="kicker reveal d1">Arquitectura · AWS</div>
+    <h2 class="reveal d2">Monitoreo de la red</h2>
+    <div class="arch-frame reveal d3"><img src="diagramas_vectorial/HackathonCloud-AWS%20-%20InfraMonitoring.drawio.svg" alt="Arquitectura AWS"></div>
+    <div class="pagenum"></div>
+  </section>
+
+  <!-- ARQUITECTURA: Azure -->
+  <section class="slide arch-slide">
+    <div class="kicker reveal d1">Arquitectura · Azure</div>
+    <h2 class="reveal d2">Gestión de incidencias</h2>
+    <div class="arch-frame reveal d3"><img src="diagramas_vectorial/HackathonCloud-Azure%20.drawio.svg" alt="Arquitectura Azure"></div>
+    <div class="pagenum"></div>
+  </section>
+
+  <!-- ARQUITECTURA: GCP -->
+  <section class="slide arch-slide">
+    <div class="kicker reveal d1">Arquitectura · GCP</div>
+    <h2 class="reveal d2">Analítica, predicción e IA</h2>
+    <div class="arch-frame reveal d3"><img src="diagramas_vectorial/HackathonCloud-GCP%20-%20Data%20analytics.drawio.svg" alt="Arquitectura GCP"></div>
+    <div class="pagenum"></div>
+  </section>
+
+  <!-- 4. PREDICCIÓN (~50s) -->
+  <section class="slide">
+    <div class="kicker reveal d1">Predicción</div>
+    <h2 class="reveal d2">Anticipamos la falla de cada antena.</h2>
+    <div class="thresh reveal d3">
+      <div class="t0">Inhabilitada<small>0</small></div>
+      <div class="t1">Caída<small>&lt; 60 GB/min</small></div>
+      <div class="t2">Normal<small>60 – 129 GB/min</small></div>
+      <div class="t3">Saturada<small>&gt; 129 GB/min</small></div>
+    </div>
+    <div class="pipe reveal d4">
+      <div class="step"><b>BigQuery ML</b>aprende del histórico de tráfico e incidencias</div>
+      <div class="step"><b>Cada 15 min</b>probabilidad de falla por antena</div>
+      <div class="step"><b>Alerta preventiva</b>se envía a AWS antes de que falle</div>
+    </div>
+    <div class="pagenum"></div>
+  </section>
+
+  <!-- 5. GEMINI (~40s) -->
+  <section class="slide">
+    <div class="kicker reveal d1">IA generativa</div>
+    <h2 class="reveal d2">Gemini convierte reportes en decisiones.</h2>
+    <div class="cards">
+      <div class="card reveal d3"><div class="t">Clasifica</div><div class="s">Categoría, urgencia y si afecta un hospital, colegio o industria.</div><div class="mono">POST /ai/classify-report</div></div>
+      <div class="card reveal d4"><div class="t">Resume</div><div class="s">Resumen para el operador, causa probable y acción recomendada.</div><div class="mono">POST /ai/summarize-incident</div></div>
+    </div>
+    <div class="privacy reveal d5">Sin datos personales en ningún prompt.</div>
+    <div class="pagenum"></div>
+  </section>
+
+  <!-- 6. DASHBOARDS (~25s) -->
+  <section class="slide">
+    <div class="kicker reveal d1">Visualización</div>
+    <h2 class="reveal d2">Zonas críticas a la vista.</h2>
+    <div class="chips">
+      <div class="chip hl reveal d3">Mapa de antenas e incidencias</div>
+      <div class="chip reveal d3">Zonas con más reportes</div>
+      <div class="chip reveal d4">Antenas que fallan seguido</div>
+      <div class="chip reveal d4">Correlación tráfico ↔ reportes</div>
+      <div class="chip reveal d5">Looker Studio</div>
+    </div>
+    <div class="pagenum"></div>
+  </section>
+
+  <!-- 7. SERVERLESS (~20s) -->
+  <section class="slide">
+    <div class="kicker reveal d1">Eficiencia</div>
+    <h2 class="reveal d2">100% serverless. Pagas solo lo que usas.</h2>
+    <p class="lead reveal d3">Escala sola ante cortes masivos, sin servidores encendidos y con ingesta idempotente: ningún reporte se pierde ni se duplica.</p>
+    <div class="pagenum"></div>
+  </section>
+
+  <!-- 8. CIERRE (~20s) -->
+  <section class="slide close-slide">
+    <div class="kicker reveal d1">TeleCorp Data Analytics</div>
+    <h2 class="reveal d2">De reaccionar <span class="accent">a anticiparse.</span></h2>
+    <p class="lead reveal d3">Gracias.</p>
+  </section>
+
+</main>
+</div>
+
+<script>
+/* === CONTROLADOR === */
+class SlidePresentation {
+  constructor() {
+    this.slides = [...document.querySelectorAll('.slide')];
+    this.stage = document.getElementById('deckStage');
+    this.bar = document.getElementById('progress');
+    this.slides.forEach((sl,k)=>{ const p=sl.querySelector('.pagenum'); if(p) p.textContent=String(k+1).padStart(2,'0'); });
+    this.i = 0;
+    this.scale(); window.addEventListener('resize', () => this.scale());
+    document.addEventListener('keydown', e => {
+      if (['ArrowRight','ArrowDown','PageDown',' ','Enter'].includes(e.key)) { e.preventDefault(); this.go(this.i+1); }
+      if (['ArrowLeft','ArrowUp','PageUp','Backspace'].includes(e.key)) { e.preventDefault(); this.go(this.i-1); }
+      if (e.key === 'Home') this.go(0);
+      if (e.key === 'End') this.go(this.slides.length-1);
+    });
+    let sx = 0;
+    document.addEventListener('touchstart', e => sx = e.touches[0].clientX);
+    document.addEventListener('touchend', e => { const d = e.changedTouches[0].clientX - sx; if (Math.abs(d) > 50) this.go(this.i + (d < 0 ? 1 : -1)); });
+    document.addEventListener('click', e => this.go(this.i + (e.clientX > innerWidth/3 ? 1 : -1)));
+    this.go(0);
+  }
+  scale() {
+    const f = Math.min(innerWidth/1920, innerHeight/1080);
+    this.stage.style.transform = `translate(${(innerWidth-1920*f)/2}px, ${(innerHeight-1080*f)/2}px) scale(${f})`;
+  }
+  go(n) {
+    this.i = Math.max(0, Math.min(n, this.slides.length-1));
+    this.slides.forEach((s, k) => { s.classList.toggle('active', k===this.i); s.classList.toggle('visible', k===this.i); });
+    this.bar.style.width = ((this.i+1)/this.slides.length*100) + '%';
+  }
+}
+new SlidePresentation();
+</script>
+</body>
+</html>
